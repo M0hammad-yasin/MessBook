@@ -45,6 +45,7 @@ export function demoRecords(): Entity[] {
     },
     {
       id: "gas1",
+      paidBy: "m5",
       kind: "fuel",
       date: `${month}-01`,
       resource: "Gas",
@@ -59,6 +60,22 @@ export function demoRecords(): Entity[] {
       notes: "Kitchen cylinder · September",
     },
   );
+  records.push({
+    id: "chai1",
+    kind: "fuel",
+    date: month + "-01",
+    resource: "Chai",
+    amount: 300000,
+    paidBy: "m1",
+    tier: "average",
+    memberIds: [],
+    effective: month + "-01",
+    end: "",
+    breakfast: 9000,
+    lunch: 0,
+    dinner: 9000,
+    notes: "Milk, tea and sugar",
+  });
   for (let d = 1; d <= day; d++) {
     const date = `${month}-${String(d).padStart(2, "0")}`;
     meals.forEach((meal, mi) => {
@@ -79,10 +96,11 @@ export function demoRecords(): Entity[] {
         date,
         meal,
         description: [
-          "Eggs, paratha & chai",
+          "Eggs & paratha",
           "Daal, rice & salad",
           "Chicken curry & roti",
         ][mi],
+        paidBy: d % 3 === 0 ? `m${(d + mi) % 8}` : "",
         amount: [82000, 136000, 184000][mi] + (d % 4) * 6000,
       });
       records.push({
@@ -92,6 +110,8 @@ export function demoRecords(): Entity[] {
         meal,
         oilId: "oil1",
         gasId: "gas1",
+        chaiId: mi === 0 ? "chai1" : "",
+        chaiRate: mi === 0 ? 9000 : 0,
         oilRate: mi ? 8500 : 4500,
         gasRate: mi ? 5500 : 3500,
       });

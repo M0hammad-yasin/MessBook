@@ -41,6 +41,8 @@ export const entitySchema = z.discriminatedUnion("kind", [
   z.object({
     id,
     kind: z.literal("food"),
+    paidBy: z.string().max(100).optional(),
+    paidAt: date.optional(),
     date,
     meal,
     description: z.string().trim().min(1).max(300),
@@ -49,8 +51,9 @@ export const entitySchema = z.discriminatedUnion("kind", [
   z.object({
     id,
     kind: z.literal("fuel"),
+    paidBy: z.string().max(100).optional(),
     date,
-    resource: z.enum(["Oil", "Gas"]),
+    resource: z.enum(["Oil", "Gas", "Chai"]),
     amount: money.positive(),
     tier: z.enum(["divide_by_people", "average"]),
     memberIds: members,
@@ -70,10 +73,13 @@ export const entitySchema = z.discriminatedUnion("kind", [
     gasId: z.string().max(100),
     oilRate: money,
     gasRate: money,
+    chaiId: z.string().max(100).default(""),
+    chaiRate: money.default(0),
   }),
   z.object({
     id,
     kind: z.literal("shared"),
+    paidBy: z.string().max(100).optional(),
     date,
     category: z.enum([
       "Electricity",
@@ -119,7 +125,7 @@ export function prepareEntity(input: unknown, records: Entity[]): Entity {
     throw new Error("Record type cannot be changed");
   if (entity.kind === "cooking") {
     const old = previous as Cooking | undefined;
-    for (const resource of ["oil", "gas"] as const) {
+    for (const resource of ["oil", "gas", "chai"] as const) {
       const key = `${resource}Id` as const;
       const rate = `${resource}Rate` as const;
       if (!entity[key]) {
@@ -148,7 +154,7 @@ export function prepareEntity(input: unknown, records: Entity[]): Entity {
       if (!sameLog && entry.end)
         throw new Error(`Choose an open ${resource} entry`);
       entity[rate] = sameLog
-        ? old[rate]
+        ? old[rate] || 0
         : entry[entity.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"];
     }
   }
@@ -175,6 +181,7 @@ export function validateState(records: Entity[]) {
   };
   const unique = new Set<string>();
   for (const e of records) {
+    if ("paidBy" in e && e.paidBy) checkMember(e.paidBy);
     if ("memberId" in e) checkMember(e.memberId);
     if ("memberIds" in e) e.memberIds.forEach(checkMember);
     if (e.kind === "member" && e.departure && e.departure < e.arrival)
@@ -203,7 +210,7 @@ export function validateState(records: Entity[]) {
         throw new Error("Check the fuel effective and end dates");
     }
     if (e.kind === "cooking") {
-      for (const resource of ["oil", "gas"] as const) {
+      for (const resource of ["oil", "gas", "chai"] as const) {
         const key = `${resource}Id` as const;
         if (e[key]) {
           const fuel = fuelById.get(e[key]);
@@ -238,6 +245,10 @@ export function validateState(records: Entity[]) {
         !("amount" in expense)
       )
         throw new Error("Select the existing expense funded by this purchase");
+      if ("paidBy" in expense && expense.paidBy)
+        throw new Error(
+          "Remove the old linked credit before assigning a buyer to this expense",
+        );
       const total = purchaseTotals.get(e.expenseId) || 0;
       if (total > expense.amount)
         throw new Error("Personal purchase credits exceed the linked expense");

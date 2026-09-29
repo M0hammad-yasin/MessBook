@@ -10,8 +10,17 @@ export function migrateRecords(input: Entity[]): Entity[] {
       return member;
     }
     if (record.kind === "shared" && String(record.method) === "Stay units") {
-      return { ...record, method: "Manual", manual: allocate(record.amount,
-        record.memberIds.map((id) => ({ id, weight: legacy.find((r) => r.id === id)?.stayUnits || 0 }))) };
+      return {
+        ...record,
+        method: "Manual",
+        manual: allocate(
+          record.amount,
+          record.memberIds.map((id) => ({
+            id,
+            weight: legacy.find((r) => r.id === id)?.stayUnits || 0,
+          })),
+        ),
+      };
     }
     return record;
   });

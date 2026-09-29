@@ -6,6 +6,8 @@ import { checkOrigin, session } from "@/lib/auth";
 import { records, meta } from "@/db/schema";
 import { prepareEntity, validateState } from "@/lib/validation";
 import type { Entity } from "@/lib/domain";
+import { buildMealChanges } from "@/lib/meal-service";
+import { buildExpenseChanges } from "@/lib/expense-service";
 import { migrateDatabase } from "@/lib/migrate-database";
 export const dynamic = "force-dynamic";
 export async function GET() {
@@ -42,8 +44,9 @@ export async function POST(request: Request) {
     const body = z
       .object({
         revision: z.number().int().min(0),
-        upsert: z.array(z.unknown()).max(500),
-        archive: z.array(z.string().min(1).max(100)).max(500),
+        upsert: z.array(z.unknown()).max(500).default([]),
+        meal: z.unknown().optional(),
+        archive: z.array(z.string().min(1).max(100)).max(500).default([]),
       })
       .parse(await request.json());
     await migrateDatabase(user.id);
@@ -58,16 +61,21 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     const existing = rows.filter((r) => !r.deleted).map((r) => r.payload);
-    const upsert = body.upsert.map((e) => prepareEntity(e, existing));
-    const changedIds = [...upsert.map((e) => e.id), ...body.archive];
+    if (body.meal && (body.upsert.length || body.archive.length))
+      throw new Error("Save a meal separately from other records");
+    const mutation = body.meal
+      ? buildMealChanges(body.meal, existing)
+      : buildExpenseChanges(body.upsert, body.archive, existing);
+    const upsert = mutation.upsert.map((e) => prepareEntity(e, existing));
+    const changedIds = [...upsert.map((e) => e.id), ...mutation.archive];
     if (rows.some((r) => r.deleted && changedIds.includes(r.id)))
       throw new Error("Archived record IDs cannot be reused");
-    if (body.archive.some((id) => !existing.some((e) => e.id === id)))
+    if (mutation.archive.some((id) => !existing.some((e) => e.id === id)))
       throw new Error("Record to archive was not found");
     if (new Set(changedIds).size !== changedIds.length)
       throw new Error("Duplicate changes in request");
     if (
-      body.archive.some(
+      mutation.archive.some(
         (id) => existing.find((e) => e.id === id)?.kind === "member",
       )
     )
@@ -101,12 +109,12 @@ export async function POST(request: Request) {
         .prepare(
           "UPDATE records SET deleted=1 WHERE id IN (SELECT value FROM json_each(?)) AND EXISTS(SELECT 1 FROM meta WHERE id=1 AND mutation_id=?)",
         )
-        .bind(JSON.stringify(body.archive), token),
+        .bind(JSON.stringify(mutation.archive), token),
     );
     const changes = changedIds.map((id) => ({
       id: crypto.randomUUID(),
       userId: user.id,
-      action: body.archive.includes(id)
+      action: mutation.archive.includes(id)
         ? "archive"
         : existing.some((e) => e.id === id)
           ? "update"

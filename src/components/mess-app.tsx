@@ -57,7 +57,10 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import { EntryForm, kindLabels } from "./entry-form";
-import { AttendanceBoard } from "./attendance";
+import { MealForm } from "./meal-form";
+import { MealsTable } from "./meals-table";
+import { buildMealChanges, type MealInput } from "@/lib/meal-service";
+import { buildExpenseChanges } from "@/lib/expense-service";
 import { DataTable, exportCsv } from "./data-table";
 import { SpendChart, SplitChart } from "./charts";
 import { MonthlySettlements } from "./monthly-settlements";
@@ -65,10 +68,8 @@ import { MonthlySettlements } from "./monthly-settlements";
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "members", label: "Members", icon: Users },
-  { id: "attendance", label: "Attendance", icon: CalendarCheck },
-  { id: "food", label: "Meal expenses", icon: Utensils },
-  { id: "fuel", label: "Oil & gas", icon: Flame },
-  { id: "cooking", label: "Cooking log", icon: Coffee },
+  { id: "food", label: "Meals", icon: Utensils },
+  { id: "fuel", label: "Oil, gas & chai", icon: Flame },
   { id: "shared", label: "Shared expenses", icon: Receipt },
   { id: "payments", label: "Payments & credit", icon: Wallet },
   { id: "settlements", label: "Settlements", icon: ArrowLeftRight },
@@ -156,7 +157,6 @@ export default function MessApp() {
   const [notice, setNotice] = useState("");
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
-  const [day, setDay] = useState(today());
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("All");
   const [memberFilter, setMemberFilter] = useState("All");
@@ -190,7 +190,10 @@ export default function MessApp() {
       .filter((l) => l.category === "Food")
       .reduce((n, l) => n + l.debit, 0),
     fuel: periodLines
-      .filter((l) => l.category === "Oil" || l.category === "Gas")
+      .filter(
+        (l) =>
+          l.category === "Oil" || l.category === "Gas" || l.category === "Chai",
+      )
       .reduce((n, l) => n + l.debit, 0),
     shared: periodLines
       .filter((l) => l.category === "Shared")
@@ -248,9 +251,17 @@ export default function MessApp() {
     const timer = setTimeout(() => setNotice(""), 5000);
     return () => clearTimeout(timer);
   }, [notice]);
-  async function save(upsert: Entity[], archived: string[] = []) {
+  async function save(
+    upsert: Entity[],
+    archived: string[] = [],
+    meal?: MealInput,
+  ) {
     if (demo) {
-      const prepared = upsert.map((e) => prepareEntity(e, records));
+      const changes = meal
+        ? buildMealChanges(meal, records)
+        : buildExpenseChanges(upsert, archived, records);
+      const prepared = changes.upsert;
+      archived = changes.archive;
       const changed = [...prepared.map((e) => e.id), ...archived];
       const next = [
         ...records.filter((r) => !changed.includes(r.id)),
@@ -264,6 +275,7 @@ export default function MessApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           revision: state.revision,
+          meal,
           upsert,
           archive: archived,
         }),
@@ -272,8 +284,12 @@ export default function MessApp() {
       if (!response.ok) {
         if (response.status === 409) {
           await refresh();
+          setForm(null);
+          setError(
+            "Another user changed the records. Reopen the meal or expense to review the latest version before editing.",
+          );
           throw new Error(
-            "Records refreshed after another edit. Review your changes and save again.",
+            "Records changed. Reopen this entry to review the latest version.",
           );
         }
         throw new Error(data.error);
@@ -373,7 +389,7 @@ export default function MessApp() {
     },
     {
       accessorKey: "fuel",
-      header: "Oil & gas",
+      header: "Oil, gas & chai",
       cell: ({ getValue }) => pkr(Number(getValue())),
     },
     {
@@ -454,20 +470,24 @@ export default function MessApp() {
     members: "member",
     food: "food",
     fuel: "fuel",
-    cooking: "cooking",
     shared: "shared",
     payments: "payment",
   };
   const filterOptions: Partial<Record<Page, string[]>> = {
     members: ["Active", "Left", "Archived"],
     food: [...meals],
-    cooking: [...meals],
-    fuel: ["Oil", "Gas"],
+    fuel: ["Oil", "Gas", "Chai"],
     shared: ["Electricity", "Water", "Cleaning", "Internet", "Salary", "Other"],
-    payments: ["Deposit", "Refund", "Reimbursement", "Personal purchase"],
+    payments: [
+      "Deposit",
+      "Refund",
+      "Reimbursement",
+      "Personal purchase",
+      "Automatic purchase credit",
+    ],
     settlements: ["Owes mess", "In credit", "Settled"],
     reports: [...meals],
-    audit: ["create", "update", "archive"],
+    audit: ["create", "update", "archive", "migrate"],
   };
   const secondOptions: Partial<Record<Page, string[]>> = {
     fuel: ["Open average", "Closed average", "Direct split"],
@@ -477,7 +497,8 @@ export default function MessApp() {
   const matchesSearch = (entity: Entity) =>
     (
       JSON.stringify(entity) +
-      ("memberId" in entity ? name(entity.memberId) : "")
+      ("memberId" in entity ? name(entity.memberId) : "") +
+      ("paidBy" in entity && entity.paidBy ? name(entity.paidBy) : "")
     )
       .toLowerCase()
       .includes(query.toLowerCase());
@@ -489,7 +510,8 @@ export default function MessApp() {
       ("memberId" in r
         ? r.memberId !== memberFilter
         : "memberIds" in r
-          ? !r.memberIds.includes(memberFilter)
+          ? !r.memberIds.includes(memberFilter) &&
+            !("paidBy" in r && r.paidBy === memberFilter)
           : false)
     )
       return false;
@@ -534,6 +556,16 @@ export default function MessApp() {
       <strong className="font-medium">{pkr(Number(getValue()))}</strong>
     ),
   };
+  const buyerColumn: ColumnDef<Entity> = {
+    id: "paidBy",
+    header: "Paid by",
+    accessorFn: (r) =>
+      "paidBy" in r && r.paidBy
+        ? name(r.paidBy)
+        : records.some((p) => p.kind === "purchase" && p.expenseId === r.id)
+          ? "Historical buyers"
+          : "Mess fund",
+  };
   const actionsColumn: ColumnDef<Entity> = {
     id: "actions",
     header: "",
@@ -565,8 +597,8 @@ export default function MessApp() {
               ].includes(k)
                 ? k + " PKR"
                 : k,
-              k === "memberId"
-                ? name(String(v))
+              k === "memberId" || k === "paidBy"
+                ? v ? name(String(v)) : "Mess fund"
                 : k === "memberIds" && Array.isArray(v)
                   ? v.map((id) => name(String(id))).join("; ")
                   : k === "manual" && typeof v === "object"
@@ -607,7 +639,12 @@ export default function MessApp() {
           .filter((l) => l.category === "Food")
           .reduce((n, l) => n + l.debit, 0),
         fuel: lines
-          .filter((l) => l.category === "Oil" || l.category === "Gas")
+          .filter(
+            (l) =>
+              l.category === "Oil" ||
+              l.category === "Gas" ||
+              l.category === "Chai",
+          )
           .reduce((n, l) => n + l.debit, 0),
         shared: lines
           .filter((l) => l.category === "Shared")
@@ -782,8 +819,8 @@ export default function MessApp() {
                   ? "Good food. Fair shares. Everything in one place."
                   : page === "settlements"
                     ? `Cumulative balances through ${to}. Positive means owed to the mess.`
-                    : page === "attendance"
-                      ? "A few taps now. Accurate meal shares later."
+                    : page === "food"
+                      ? "One meal, all ingredients, buyers and eaters in one place."
                       : page === "fuel"
                         ? "Track every purchase, applied rate, and reconciliation."
                         : page === "audit"
@@ -836,84 +873,71 @@ export default function MessApp() {
             </div>
           )}
           <div className="filter-bar">
-            {page === "attendance" ? (
-              <label className="flex items-center gap-2 text-xs text-stone-500">
-                Attendance date
+            <>
+              <select
+                aria-label="Date range preset"
+                className="control w-auto min-w-36"
+                value={
+                  from === monthStart() && to === today()
+                    ? "month"
+                    : from === today() && to === today()
+                      ? "today"
+                      : "custom"
+                }
+                onChange={(e) => {
+                  if (e.target.value === "month") {
+                    setFrom(monthStart());
+                    setTo(today());
+                  }
+                  if (e.target.value === "today") {
+                    setFrom(today());
+                    setTo(today());
+                  }
+                  if (e.target.value === "lastmonth") {
+                    const d = new Date(today() + "T12:00:00Z");
+                    d.setUTCDate(0);
+                    setTo(d.toISOString().slice(0, 10));
+                    setFrom(d.toISOString().slice(0, 7) + "-01");
+                  }
+                  if (e.target.value === "all") {
+                    setFrom("2000-01-01");
+                    setTo(today());
+                  }
+                }}
+              >
+                <option value="month">This month</option>
+                <option value="today">Today</option>
+                <option value="lastmonth">Last month</option>
+                <option value="all">All time</option>
+                <option value="custom">Custom range</option>
+              </select>
+              <div className="flex items-center gap-2">
                 <Input
                   type="date"
-                  aria-label="Attendance date"
-                  value={day}
-                  onChange={(e) => e.target.value && setDay(e.target.value)}
-                  className="w-40"
-                />
-              </label>
-            ) : (
-              <>
-                <select
-                  aria-label="Date range preset"
-                  className="control w-auto min-w-36"
-                  value={
-                    from === monthStart() && to === today()
-                      ? "month"
-                      : from === today() && to === today()
-                        ? "today"
-                        : "custom"
-                  }
+                  aria-label="Start date"
+                  className="w-36"
+                  max={to}
+                  value={from}
                   onChange={(e) => {
-                    if (e.target.value === "month") {
-                      setFrom(monthStart());
-                      setTo(today());
-                    }
-                    if (e.target.value === "today") {
-                      setFrom(today());
-                      setTo(today());
-                    }
-                    if (e.target.value === "lastmonth") {
-                      const d = new Date(today() + "T12:00:00Z");
-                      d.setUTCDate(0);
-                      setTo(d.toISOString().slice(0, 10));
-                      setFrom(d.toISOString().slice(0, 7) + "-01");
-                    }
-                    if (e.target.value === "all") {
-                      setFrom("2000-01-01");
-                      setTo(today());
-                    }
+                    if (e.target.value && e.target.value <= to)
+                      setFrom(e.target.value);
                   }}
-                >
-                  <option value="month">This month</option>
-                  <option value="today">Today</option>
-                  <option value="lastmonth">Last month</option>
-                  <option value="all">All time</option>
-                  <option value="custom">Custom range</option>
-                </select>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="date"
-                    aria-label="Start date"
-                    className="w-36"
-                    max={to}
-                    value={from}
-                    onChange={(e) => {
-                      if (e.target.value && e.target.value <= to)
-                        setFrom(e.target.value);
-                    }}
-                  />
-                  <span className="text-stone-300">—</span>
-                  <Input
-                    type="date"
-                    aria-label="End date"
-                    className="w-36"
-                    min={from}
-                    value={to}
-                    onChange={(e) => {
-                      if (e.target.value && e.target.value >= from)
-                        setTo(e.target.value);
-                    }}
-                  />
-                </div>
-              </>
-            )}
-            {page !== "overview" && page !== "attendance" && (
+                />
+                <span className="text-stone-300">—</span>
+                <Input
+                  type="date"
+                  aria-label="End date"
+                  className="w-36"
+                  min={from}
+                  value={to}
+                  onChange={(e) => {
+                    if (e.target.value && e.target.value >= from)
+                      setTo(e.target.value);
+                  }}
+                />
+              </div>
+            </>
+            {page !== "overview" && (
               <>
                 <div className="relative min-w-44 flex-1">
                   <Search
@@ -954,7 +978,7 @@ export default function MessApp() {
                     ))}
                   </select>
                 )}
-                {["payments", "shared", "fuel", "settlements"].includes(
+                {["payments", "shared", "fuel", "settlements", "food"].includes(
                   page,
                 ) && (
                   <select
@@ -1068,7 +1092,7 @@ export default function MessApp() {
                         color: "#17664e",
                       },
                       {
-                        name: "Oil & gas",
+                        name: "Oil, gas & chai",
                         value: totals.fuel,
                         color: "#d2ad65",
                       },
@@ -1087,10 +1111,9 @@ export default function MessApp() {
                     <h2 className="section-title">Today at the table</h2>
                     <button
                       className="text-xs font-medium text-emerald-800"
-                      onClick={() => navigate("attendance")}
+                      onClick={() => navigate("food")}
                     >
-                      Manage attendance{" "}
-                      <ArrowUpRight className="inline" size={13} />
+                      Manage meals <ArrowUpRight className="inline" size={13} />
                     </button>
                   </div>
                   <div className="mt-5 grid grid-cols-3 gap-3">
@@ -1135,7 +1158,7 @@ export default function MessApp() {
                     </button>
                   </div>
                   <div className="mt-4 space-y-4">
-                    {activeFuel.slice(0, 2).map((f) => {
+                    {activeFuel.slice(0, 3).map((f) => {
                       const charged = result.fuelCharged[f.id] || 0;
                       return (
                         <div key={f.id}>
@@ -1168,7 +1191,7 @@ export default function MessApp() {
                     })}
                     {!activeFuel.length && (
                       <p className="py-8 text-center text-sm text-stone-400">
-                        No open oil or gas entries.
+                        No open oil, gas or chai entries.
                       </p>
                     )}
                   </div>
@@ -1271,91 +1294,29 @@ export default function MessApp() {
               },
               actionsColumn,
             ])}
-          {page === "attendance" && (
-            <AttendanceBoard
-              key={day}
+          {page === "food" && (
+            <MealsTable
               records={records}
-              date={day}
-              save={save}
-              addCooking={() => setForm({ kind: "cooking" })}
+              from={from}
+              to={to}
+              query={query}
+              filter={filter}
+              memberFilter={memberFilter}
+              onEdit={(date, meal) =>
+                setForm({
+                  kind: "food",
+                  entity: {
+                    id: "meal-editor",
+                    kind: "food",
+                    date,
+                    meal,
+                    description: "",
+                    amount: 0,
+                  },
+                })
+              }
             />
           )}
-          {page === "food" &&
-            entityTable("food", [
-              dateColumn,
-              {
-                id: "meal",
-                accessorFn: (r) => (r.kind === "food" ? r.meal : ""),
-                header: "Meal",
-                cell: ({ getValue }) => (
-                  <Badge tone="gray">{String(getValue())}</Badge>
-                ),
-              },
-              {
-                id: "description",
-                accessorFn: (r) => (r.kind === "food" ? r.description : ""),
-                header: "Description",
-              },
-              amountColumn,
-              {
-                id: "eaters",
-                header: "Eaters",
-                cell: ({ row }) =>
-                  row.original.kind === "food"
-                    ? result.mealSummaries.find(
-                        (m) =>
-                          m.date === (row.original as { date: string }).date &&
-                          m.meal === (row.original as { meal: string }).meal,
-                      )?.eaters || <Badge tone="amber">No eaters</Badge>
-                    : "",
-              },
-              actionsColumn,
-            ])}
-          {page === "cooking" &&
-            entityTable("cooking", [
-              dateColumn,
-              {
-                id: "meal",
-                accessorFn: (r) => (r.kind === "cooking" ? r.meal : ""),
-                header: "Meal",
-              },
-              {
-                id: "oil",
-                header: "Oil · saved rate",
-                cell: ({ row }) =>
-                  row.original.kind === "cooking" ? (
-                    row.original.oilId ? (
-                      <span>
-                        {pkr(row.original.oilRate)}
-                        <small className="block text-stone-400">
-                          {
-                            byKind(records, "fuel").find(
-                              (f) =>
-                                f.id ===
-                                (row.original as { oilId: string }).oilId,
-                            )?.notes
-                          }
-                        </small>
-                      </span>
-                    ) : (
-                      "Not used"
-                    )
-                  ) : (
-                    ""
-                  ),
-              },
-              {
-                id: "gas",
-                header: "Gas · saved rate",
-                cell: ({ row }) =>
-                  row.original.kind === "cooking"
-                    ? row.original.gasId
-                      ? pkr(row.original.gasRate)
-                      : "Not used"
-                    : "",
-              },
-              actionsColumn,
-            ])}
           {page === "fuel" && (
             <div className="space-y-5">
               <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4 text-xs leading-relaxed text-amber-900">
@@ -1398,6 +1359,7 @@ export default function MessApp() {
                     ),
                 },
                 amountColumn,
+                buyerColumn,
                 {
                   id: "charged",
                   accessorFn: (r) => result.fuelCharged[r.id] || 0,
@@ -1430,6 +1392,7 @@ export default function MessApp() {
           )}
           {page === "shared" &&
             entityTable("shared", [
+              buyerColumn,
               dateColumn,
               {
                 id: "category",
@@ -1459,6 +1422,7 @@ export default function MessApp() {
               actionsColumn,
             ])}
           {page === "payments" &&
+            filter !== "Automatic purchase credit" &&
             entityTable(
               ["payment", "purchase"],
               [
@@ -1521,6 +1485,62 @@ export default function MessApp() {
                 actionsColumn,
               ],
             )}
+          {page === "payments" &&
+            (filter === "All" || filter === "Automatic purchase credit") &&
+            secondary === "All" && (
+              <section className="mt-6">
+                <h2 className="section-title mb-2">
+                  Automatic purchase credits
+                </h2>
+                <p className="mb-4 text-xs text-stone-500">
+                  These credits come from the buyer selected on an ingredient or
+                  expense. Edit the original meal or purchase to change them.
+                </p>
+                <DataTable
+                  rows={periodLines.filter(
+                    (l) =>
+                      l.category === "Purchase" &&
+                      l.id.startsWith("buyer-") &&
+                      (memberFilter === "All" || l.memberId === memberFilter) &&
+                      (name(l.memberId) + " " + l.description)
+                        .toLowerCase()
+                        .includes(query.toLowerCase()),
+                  )}
+                  columns={[
+                    { accessorKey: "date", header: "Date" },
+                    {
+                      id: "member",
+                      accessorFn: (r) => name(r.memberId),
+                      header: "Member",
+                    },
+                    { accessorKey: "description", header: "Paid for" },
+                    {
+                      accessorKey: "credit",
+                      header: "Credit",
+                      cell: ({ getValue }) => pkr(Number(getValue())),
+                    },
+                  ]}
+                  exportRows={periodLines
+                    .filter(
+                      (l) =>
+                        l.category === "Purchase" &&
+                        l.id.startsWith("buyer-") &&
+                        (memberFilter === "All" ||
+                          l.memberId === memberFilter) &&
+                        (name(l.memberId) + " " + l.description)
+                          .toLowerCase()
+                          .includes(query.toLowerCase()),
+                    )
+                    .map((l) => ({
+                      Date: l.date,
+                      Member: name(l.memberId),
+                      Description: l.description,
+                      "Credit PKR": l.credit / 100,
+                    }))}
+                  filename={`automatic-credits-${from}-${to}`}
+                />
+              </section>
+            )}
           {page === "settlements" && (
             <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-3">
@@ -1548,7 +1568,7 @@ export default function MessApp() {
               <p className="text-xs text-stone-500">
                 Opening credit and all entries through the end date are
                 included. The start date applies to the statement view. Direct
-                fuel charges are included once in Oil & gas.
+                fuel charges are included once in Oil, gas & chai.
               </p>
               <DataTable
                 rows={balanceRows}
@@ -1641,17 +1661,34 @@ export default function MessApp() {
           {notice}
         </div>
       )}
-      {form && (
-        <EntryForm
-          key={`${form.kind}-${form.entity?.id || "new"}`}
-          kind={form.kind}
-          editing={form.entity}
-          defaultDate={page === "attendance" ? day : undefined}
-          records={records}
-          onClose={() => setForm(null)}
-          onSave={(entity) => save([entity])}
-        />
-      )}
+      {form &&
+        (form.kind === "food" || form.kind === "cooking" ? (
+          <MealForm
+            key={form.entity?.id || "new-meal"}
+            records={records}
+            date={
+              form.entity && "date" in form.entity
+                ? form.entity.date
+                : undefined
+            }
+            meal={
+              form.entity && "meal" in form.entity
+                ? form.entity.meal
+                : undefined
+            }
+            onClose={() => setForm(null)}
+            onSave={(meal) => save([], [], meal)}
+          />
+        ) : (
+          <EntryForm
+            key={`${form.kind}-${form.entity?.id || "new"}`}
+            kind={form.kind}
+            editing={form.entity}
+            records={records}
+            onClose={() => setForm(null)}
+            onSave={(entity) => save([entity])}
+          />
+        ))}
       <Dialog open={quick} onOpenChange={setQuick}>
         <DialogContent>
           <DialogTitle className="text-xl font-semibold">
@@ -1669,8 +1706,6 @@ export default function MessApp() {
                 "shared",
                 "payment",
                 "purchase",
-                "cooking",
-                "attendance",
               ] as Kind[]
             ).map((kind) => (
               <button
@@ -1678,8 +1713,7 @@ export default function MessApp() {
                 className="rounded-xl border border-stone-200 p-4 text-left text-sm font-medium transition hover:border-emerald-700 hover:bg-emerald-50"
                 onClick={() => {
                   setQuick(false);
-                  if (kind === "attendance") navigate("attendance");
-                  else setForm({ kind });
+                  setForm({ kind });
                 }}
               >
                 <Plus size={17} className="mb-3 text-emerald-700" />
@@ -1778,6 +1812,7 @@ export default function MessApp() {
                 "Food",
                 "Oil",
                 "Gas",
+                "Chai",
                 "Shared",
                 "Payment",
                 "Purchase",
@@ -2071,6 +2106,15 @@ function Reports({
           .reduce((n, m) => n + m.food, 0),
         oil: mealsForPeriod.reduce((n, m) => n + m.oil, 0),
         gas: mealsForPeriod.reduce((n, m) => n + m.gas, 0),
+        chai: mealsForPeriod.reduce((n, m) => n + m.chai, 0),
+        directChai: byKind(records, "fuel")
+          .filter(
+            (f) =>
+              match(f.date) &&
+              f.tier === "divide_by_people" &&
+              f.resource === "Chai",
+          )
+          .reduce((n, f) => n + f.amount, 0),
         directOil: byKind(records, "fuel")
           .filter(
             (f) =>
@@ -2096,6 +2140,9 @@ function Reports({
         refunds: byKind(records, "payment")
           .filter((p) => match(p.date) && p.type === "Refund")
           .reduce((n, p) => n + p.amount, 0),
+        purchaseCredits: all.lines
+          .filter((l) => match(l.date) && l.category === "Purchase")
+          .reduce((n, l) => n + l.credit, 0),
         reimbursements: byKind(records, "payment")
           .filter((p) => match(p.date) && p.type === "Reimbursement")
           .reduce((n, p) => n + p.amount, 0),
@@ -2114,12 +2161,15 @@ function Reports({
       "dinner",
       "oil",
       "gas",
+      "chai",
+      "directChai",
       "directOil",
       "directGas",
       "shared",
       "deposits",
       "refunds",
       "reimbursements",
+      "purchaseCredits",
     ] as const
   ).map((key) => ({
     accessorKey: key,
@@ -2128,6 +2178,9 @@ function Reports({
         {
           oil: "Oil · average",
           gas: "Gas · average",
+          chai: "Chai · average",
+          directChai: "Chai · direct",
+          purchaseCredits: "Purchase credits",
           directOil: "Oil · direct",
           directGas: "Gas · direct",
         } as Record<string, string>
@@ -2212,6 +2265,7 @@ function Reports({
             },
             { accessorKey: "oilId", header: "Oil entry" },
             { accessorKey: "gasId", header: "Gas entry" },
+            { accessorKey: "chaiId", header: "Chai entry" },
           ]}
           exportRows={rows.map((r) => ({
             Date: r.date,
@@ -2220,10 +2274,12 @@ function Reports({
             "Food PKR": r.food / 100,
             "Oil PKR": r.oil / 100,
             "Gas PKR": r.gas / 100,
+            "Chai PKR": r.chai / 100,
             "Total PKR": r.total / 100,
             "Average per eater PKR": r.perEater / 100,
             "Oil entry": r.oilId,
             "Gas entry": r.gasId,
+            "Chai entry": r.chaiId,
             Warning: r.total && !r.eaters ? "Expense exists but no eaters" : "",
           }))}
           filename={`meals-${from}-${to}`}
