@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "messbook",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "bc362b7d-54f3-4bda-aa01-5b5ecbf89099",
       "migrations_dir": "drizzle",
     },
   ],
