@@ -25,9 +25,9 @@ import {
 export const kindLabels: Record<Kind, string> = {
   member: "Member",
   attendance: "Attendance",
-  food: "Meal expense",
-  fuel: "Oil / gas purchase",
-  cooking: "Cooking log",
+  food: "Meal",
+  fuel: "Oil / gas / chai purchase",
+  cooking: "Meal",
   shared: "Shared expense",
   payment: "Payment",
   purchase: "Personal purchase",
@@ -87,7 +87,13 @@ export function EntryForm({
         ? members.filter((m) => m.status === "Active").map((m) => m.id)
         : [],
   );
+  const legacyCredits = editing
+    ? byKind(records, "purchase").filter(
+        (p) => p.appliedTo !== "General credit" && p.expenseId === editing.id,
+      )
+    : [];
   const initial: FormValues = {
+    paidBy: legacyCredits.length ? "__legacy" : "",
     date: today(),
     meal: "Breakfast",
     amount: "",
@@ -162,7 +168,7 @@ export function EntryForm({
     case "fuel":
       fields = [
         commonDate,
-        { key: "resource", label: "Resource", options: ["Oil", "Gas"] },
+        { key: "resource", label: "Resource", options: ["Oil", "Gas", "Chai"] },
         amountField,
         {
           key: "tier",
@@ -274,21 +280,42 @@ export function EntryForm({
         { key: "memberId", label: "Member", options: members.map((m) => m.id) },
       ];
   }
+  if (kind === "fuel" || kind === "shared")
+    fields.splice(3, 0, {
+      key: "paidBy",
+      label: "Paid by",
+      options: [
+        ...(legacyCredits.length ? ["__legacy"] : []),
+        "",
+        ...members
+          .filter((m) => m.status === "Active" || m.id === initial.paidBy)
+          .map((m) => m.id),
+      ],
+      help: legacyCredits.length
+        ? `Historical credits: ${legacyCredits.map((p) => `${members.find((m) => m.id === p.memberId)?.name}: ${pkr(p.amount)}`).join(", ")}. Choosing a buyer replaces these credits with the full expense amount.`
+        : "The selected member receives credit automatically. Choose Mess fund for a purchase paid from mess cash.",
+    });
   const labelFor = (key: string, value: string) =>
-    key === "memberId"
-      ? members.find((m) => m.id === value)?.name
-      : key === "expenseId"
-        ? (() => {
-            const r = records.find((r) => r.id === value);
-            return r && "description" in r && "amount" in r
-              ? `${r.description} · ${pkr(r.amount)}`
+    key === "paidBy"
+      ? value === "__legacy"
+        ? "Keep historical buyer credits"
+        : value
+          ? members.find((m) => m.id === value)?.name
+          : "Mess fund"
+      : key === "memberId"
+        ? members.find((m) => m.id === value)?.name
+        : key === "expenseId"
+          ? (() => {
+              const r = records.find((r) => r.id === value);
+              return r && "description" in r && "amount" in r
+                ? `${r.description} · ${pkr(r.amount)}`
+                : value;
+            })()
+          : value === "average"
+            ? "Average · per cooked meal"
+            : value === "divide_by_people"
+              ? "Divide by selected people"
               : value;
-          })()
-        : value === "average"
-          ? "Average · per cooked meal"
-          : value === "divide_by_people"
-            ? "Divide by selected people"
-            : value;
   const showMembers =
     (kind === "fuel" && values.tier === "divide_by_people") ||
     (kind === "shared" && values.method !== "Excluded");
@@ -309,6 +336,7 @@ export function EntryForm({
       };
       for (const key of moneyFields)
         data[key] = Math.round(Number(v[key] || 0) * 100);
+      if (data.paidBy === "__legacy") delete data.paidBy;
       const entity = entitySchema.parse(data) as Entity;
       await onSave(entity);
       onClose();
@@ -337,7 +365,7 @@ export function EntryForm({
         </DialogTitle>
         <DialogDescription className="mt-1 text-sm text-stone-500">
           {kind === "fuel"
-            ? "Keep cooking costs separate and fully traceable."
+            ? "Record the buyer here, then choose the resource in a meal."
             : kind === "purchase"
               ? "Credit the member who paid out of pocket."
               : "Your balances update automatically when you save."}
@@ -356,6 +384,7 @@ export function EntryForm({
                 {f.options ? (
                   <select
                     {...form.register(f.key)}
+                    aria-label={f.label}
                     required={f.required}
                     className="control"
                   >
@@ -423,7 +452,9 @@ export function EntryForm({
                           {pkr(
                             f[
                               values.meal.toLowerCase() as
-                                "breakfast" | "lunch" | "dinner"
+                                | "breakfast"
+                                | "lunch"
+                                | "dinner"
                             ],
                           )}
                           /meal
@@ -518,8 +549,7 @@ export function EntryForm({
           {kind === "fuel" && values.tier === "average" && (
             <p className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
               Charging continues until the end date, even when charges exceed
-              the purchase amount. Existing cooking logs retain their saved
-              rates.
+              the purchase amount. Existing meals retain their saved rates.
             </p>
           )}
           {error && (

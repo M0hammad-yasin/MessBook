@@ -21,6 +21,8 @@ export type Attendance = {
 export type Food = {
   id: string;
   kind: "food";
+  paidBy?: string;
+  paidAt?: string;
   date: string;
   meal: Meal;
   description: string;
@@ -29,8 +31,9 @@ export type Food = {
 export type Fuel = {
   id: string;
   kind: "fuel";
+  paidBy?: string;
   date: string;
-  resource: "Oil" | "Gas";
+  resource: "Oil" | "Gas" | "Chai";
   amount: number;
   tier: "divide_by_people" | "average";
   memberIds: string[];
@@ -50,13 +53,21 @@ export type Cooking = {
   gasId: string;
   oilRate: number;
   gasRate: number;
+  chaiId?: string;
+  chaiRate?: number;
 };
 export type Shared = {
   id: string;
   kind: "shared";
+  paidBy?: string;
   date: string;
   category:
-    "Electricity" | "Water" | "Cleaning" | "Internet" | "Salary" | "Other";
+    | "Electricity"
+    | "Water"
+    | "Cleaning"
+    | "Internet"
+    | "Salary"
+    | "Other";
   description: string;
   amount: number;
   method: "Equal" | "Manual" | "Excluded";
@@ -85,7 +96,14 @@ export type Purchase = {
   expenseId: string;
 };
 export type Entity =
-  Member | Attendance | Food | Fuel | Cooking | Shared | Payment | Purchase;
+  | Member
+  | Attendance
+  | Food
+  | Fuel
+  | Cooking
+  | Shared
+  | Payment
+  | Purchase;
 export type Kind = Entity["kind"];
 export type State = { records: Entity[]; revision: number };
 export type LedgerLine = {
@@ -93,7 +111,14 @@ export type LedgerLine = {
   memberId: string;
   date: string;
   category:
-    "Opening" | "Food" | "Oil" | "Gas" | "Shared" | "Payment" | "Purchase";
+    | "Opening"
+    | "Food"
+    | "Oil"
+    | "Gas"
+    | "Chai"
+    | "Shared"
+    | "Payment"
+    | "Purchase";
   description: string;
   debit: number;
   credit: number;
@@ -106,10 +131,12 @@ export type MealSummary = {
   food: number;
   oil: number;
   gas: number;
+  chai: number;
   total: number;
   perEater: number;
   oilId: string;
   gasId: string;
+  chaiId?: string;
 };
 export const today = () =>
   new Intl.DateTimeFormat("en-CA", {

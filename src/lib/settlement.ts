@@ -17,9 +17,7 @@ export function allocate(
   const sum = weights.reduce((n, w) => n + w.weight, 0);
   if (!sum) {
     if (total)
-      throw new Error(
-        "Allocation requires positive allocation weights",
-      );
+      throw new Error("Allocation requires positive allocation weights");
     return Object.fromEntries(weights.map((w) => [w.id, 0]));
   }
   const shares = weights
@@ -93,7 +91,8 @@ export function calculate(records: Entity[], through = "9999-12-31") {
     const log = cooking.find(match);
     const oil = log?.oilRate || 0;
     const gas = log?.gasRate || 0;
-    const total = amount + oil + gas;
+    const chai = log?.chaiRate || 0;
+    const total = amount + oil + gas + chai;
     mealSummaries.push({
       date,
       meal,
@@ -101,10 +100,12 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       food: amount,
       oil,
       gas,
+      chai,
       total,
       perEater: eaters.length ? total / eaters.length : 0,
       oilId: log?.oilId || "",
       gasId: log?.gasId || "",
+      chaiId: log?.chaiId || "",
     });
     if (!eaters.length) {
       if (total)
@@ -117,6 +118,7 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       ["Food", amount, ""],
       ["Oil", oil, log?.oilId],
       ["Gas", gas, log?.gasId],
+      ["Chai", chai, log?.chaiId],
     ] as const) {
       if (!value) continue;
       const shares = allocate(
@@ -200,6 +202,25 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       e.amount,
     ),
   );
+  for (const entry of records) {
+    if (
+      (entry.kind === "food" ||
+        entry.kind === "fuel" ||
+        entry.kind === "shared") &&
+      entry.paidBy
+    ) {
+      add(
+        "buyer-" + entry.id,
+        entry.paidBy,
+        entry.kind === "food" ? entry.paidAt || entry.date : entry.date,
+        "Purchase",
+        "Paid for " +
+          (entry.kind === "fuel" ? entry.resource : entry.description),
+        0,
+        entry.amount,
+      );
+    }
+  }
   lines.sort(
     (a, b) =>
       a.date.localeCompare(b.date) ||
@@ -219,7 +240,12 @@ export function calculate(records: Entity[], through = "9999-12-31") {
         .filter((l) => l.category === "Food")
         .reduce((n, l) => n + l.debit, 0),
       fuel: own
-        .filter((l) => l.category === "Oil" || l.category === "Gas")
+        .filter(
+          (l) =>
+            l.category === "Oil" ||
+            l.category === "Gas" ||
+            l.category === "Chai",
+        )
         .reduce((n, l) => n + l.debit, 0),
       shared: own
         .filter((l) => l.category === "Shared")

@@ -73,20 +73,24 @@ No GitHub remote or Cloudflare account is embedded in the source.
 
 ## Daily use
 
-1. Add members, their arrival/departure dates, and opening credit.
-2. Open **Attendance**, choose the day, tap meals, and save. Meal column headings select or clear all visible members.
-3. Add as many meal expense rows as required. Expenses without eaters remain flagged and unallocated.
-4. Add oil/gas purchases. For an average-tier entry, enter its effective date and per-meal flat rates. In **Cooking log**, explicitly choose which oil and gas entry was used for each meal.
-5. Add shared expenses using equal shares, exact manual amounts, or exclusion.
-6. Record deposits, refunds, and reimbursements immediately. A personal purchase credits its payer. When funding a meal/shared expense, record that expense first, then link the personal purchase; linking never creates a second expense.
+1. Add members, their arrival/departure dates, and opening credit. Shared expenses use Equal, Manual, or Excluded allocation; there is no member unit field.
+2. Open **Meals** and choose **Add meal**. Choose the date and Breakfast, Lunch, or Dinner. If that meal already exists, its items and attendance load for editing; a second meal for the same date and time is rejected.
+3. Add ingredient rows with an item name, PKR price, and buyer. Use **Add another item** for each purchase. Choose **Mess fund** if paid from mess cash. Each member buyer receives credit automatically; do not enter another payment for that purchase.
+4. Select the active members who ate, optionally choose Oil/Gas/Chai entries used, and save once. The total and average update as you type. Saving replaces the meal's charges and buyer credits. Add, edit, or remove items later in the same meal. Historical inactive eaters remain available separately when editing old meals.
+5. In **Oil, gas & chai**, record each purchase and its buyer. Choose a direct split or average rates per meal. Average rates are saved when a resource is selected in a meal. Applying a rate never credits its buyer again.
+6. Add shared expenses with their buyer and Equal, Manual, or Excluded allocation. Record deposits, refunds, and reimbursements on **Payments & credit**. Automatic purchase credits appear there and in member statements; edit the original expense to change them.
 7. Review settlements and select a member to open their statement. Positive balances mean the member owes the mess; negative balances mean the mess owes the member.
-8. Close average-tier oil/gas entries by setting an end date. Review the over/undercharge amount and make any refund, reimbursement, or separately documented correction manually.
-9. When someone leaves, add their departure time and set status to **Left**. Archive members through their status to retain all financial history.
+8. Close average resource entries with an end date and review over/undercharges. No automatic reconciliation adjustment is posted. Use a documented refund, reimbursement, or correction when needed.
+9. When someone leaves, set their departure and status to **Left**. Retain the member record for financial history.
+
+### Existing data
+
+Authenticated record access atomically converts legacy weighted shared expenses into exact Manual shares and removes the old member weight. Original payloads remain in the audit history. Existing food, cooking, and attendance records are read together as one meal without deleting history. Saving an old meal converts any linked personal purchases into ingredient buyer rows, retaining each historical credit date and replacing the old linked credits. Historical shared-expense funding can be kept unchanged or explicitly replaced by the selected buyer.
 
 ## Filters and exports
 
 - Date presets: today, this month, last month, all time, and custom dates.
-- Search plus module-specific meal, status, category, resource, tier, payment type, method, and member filters.
+- Search plus module-specific meal, status, category, resource, tier, payment type, method, and member filters. Meals also filter by eater/buyer role, resource used, missing attendance, and funding source; search includes ingredient and member names.
 - Sortable and paginated tables; CSV exports include all rows matching current filters, not only the visible page.
 - Settlements are cumulative through the selected end date; the start date narrows statement transactions. Changing the period never discards earlier balances.
 - Member listing includes all arrival dates; its date range changes the displayed as-of balance.
@@ -101,12 +105,12 @@ The supplied specification contains a contradictory formula in its first section
 
 ```text
 Net due = food charges
-        + applied average-tier oil/gas
-        + direct oil/gas purchase splits
+        + applied average-tier oil/gas/chai
+        + direct oil/gas/chai purchase splits
         + allocated shared expenses
         - opening credit
         - deposits
-        - personal purchases
+        - member-paid purchases (automatic or legacy credit)
         + refunds
         + reimbursements
 ```
@@ -115,7 +119,7 @@ Direct fuel purchases are derived once as distinct dated ledger charges. They ar
 
 Money is stored as integer paisa. Largest-remainder apportionment distributes residual paisa deterministically by member ID, preserving the exact original amount. Displayed average cost per eater is informational; actual individual shares may differ by one paisa.
 
-Attendance, expenses, payments, direct splits, and stay-unit edits recalculate history. Each cooking log stores its applied oil/gas rates. Editing a fuel rate changes new logs only. Editing the date, meal type, or selected entry on a cooking log intentionally re-snapshots that resource's rate. Historical closing dates cannot invalidate existing logs: correct the affected logs first.
+Meal ingredients, attendance, buyers, expenses, payments, and direct splits recalculate the derived ledger. Each meal retains its selected Oil/Gas/Chai rates. Editing resource rates affects new selections only; changing a selected entry snapshots that resource’s current rate. A saved meal’s date and meal type are fixed. Historical closing dates cannot invalidate existing meals: correct the affected meals first.
 
 The application is a single-mess administrator workspace, not a multi-tenant or resident-login service. It loads the mess's active records for flexible client-side analysis. Large multi-year datasets need measured capacity planning and server-side report pagination before scaling substantially.
 
@@ -140,3 +144,7 @@ npm run build
 `src/lib/settlement.ts` contains the independent accounting service; `src/lib/validation.ts` validates cross-record invariants and snapshots rates. `src/app/api` holds authentication and financial endpoints. `src/db/schema.ts` defines the Drizzle schema; `drizzle/` contains the migration and Drizzle metadata. `src/components` contains the responsive UI, forms, table, and chart components.
 
 For schema changes, use `npm run db:generate`, review the generated migration, test it locally, then apply remotely. Back up D1 before production schema changes. Financial audit history is not a substitute for database backups.
+
+## Feature verification
+
+Run `npm test` and `npm run typecheck`. `npm run build:worker` verifies the Cloudflare bundle. The optional local integration suite is `node --import tsx tests/api-integration.mts` with `npm run dev` running on port 3000. It requires Node 24, an empty local D1 database, and `.dev.vars`; it refuses an existing administrator workspace and removes its own test records and account afterward. It never targets a remote database.
