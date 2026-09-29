@@ -10,6 +10,7 @@ import {
   session,
 } from "@/lib/auth";
 import { database } from "@/lib/db";
+import { USER_ROLES } from "@/db/schema";
 export const dynamic = "force-dynamic";
 export async function GET() {
   try {
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
         password: z.string().min(12).max(128),
         name: z.string().min(2).max(100).optional(),
         qaum: z.string().max(100).optional(),
+        role: z.enum(USER_ROLES).optional(),
         setupToken: z.string().max(200).optional(),
       })
       .parse(await request.json());
@@ -90,9 +92,9 @@ export async function POST(request: Request) {
       const id = crypto.randomUUID();
       const created = await raw
         .prepare(
-          "INSERT INTO users(id,email,password_hash,name,qaum) SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",
+          "INSERT INTO users(id,email,password_hash,name,qaum,role) SELECT ?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",
         )
-        .bind(id, body.email, hash, body.name, body.qaum || null)
+        .bind(id, body.email, hash, body.name, body.qaum || null, body.role || "admin")
         .run();
       if (!created.meta.changes)
         return NextResponse.json(

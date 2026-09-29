@@ -10,12 +10,16 @@ export const records = sqliteTable(
   },
   (t) => [index("records_kind").on(t.kind, t.deleted)],
 );
+export const USER_ROLES = ["admin", "moderator", "user"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   qaum: text("qaum"),
+  role: text("role", { enum: USER_ROLES }).$type<UserRole>(),
 });
 export const sessions = sqliteTable(
   "sessions",

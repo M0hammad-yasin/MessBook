@@ -15,6 +15,13 @@
       "when": 1790703346872,
       "tag": "0001_panoramic_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790703800781,
+      "tag": "0002_noisy_energizer",
+      "breakpoints": true
     }
   ]
 }
