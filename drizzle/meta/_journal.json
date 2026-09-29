@@ -8,6 +8,13 @@
       "when": 1790540540588,
       "tag": "0000_unusual_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790703346872,
+      "tag": "0001_panoramic_silver_fox",
+      "breakpoints": true
     }
   ]
 }

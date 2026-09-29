@@ -41,10 +41,10 @@ export async function session() {
   const { raw } = await database();
   return raw
     .prepare(
-      "SELECT users.id, users.name, users.email FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.hash=? AND sessions.expires>?",
+      "SELECT users.id, users.name, users.email, users.qaum FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.hash=? AND sessions.expires>?",
     )
     .bind(await digest(token), Date.now())
-    .first<{ id: string; name: string; email: string }>();
+    .first<{ id: string; name: string; email: string; qaum?: string | null }>();
 }
 export function checkOrigin(request: Request) {
   const origin = request.headers.get("origin");

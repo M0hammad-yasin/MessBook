@@ -41,6 +41,7 @@ export async function POST(request: Request) {
           .transform((v) => v.toLowerCase()),
         password: z.string().min(12).max(128),
         name: z.string().min(2).max(100).optional(),
+        qaum: z.string().max(100).optional(),
         setupToken: z.string().max(200).optional(),
       })
       .parse(await request.json());
@@ -89,9 +90,9 @@ export async function POST(request: Request) {
       const id = crypto.randomUUID();
       const created = await raw
         .prepare(
-          "INSERT INTO users(id,email,password_hash,name) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",
+          "INSERT INTO users(id,email,password_hash,name,qaum) SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",
         )
-        .bind(id, body.email, hash, body.name)
+        .bind(id, body.email, hash, body.name, body.qaum || null)
         .run();
       if (!created.meta.changes)
         return NextResponse.json(
