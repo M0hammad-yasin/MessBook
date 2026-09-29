@@ -20,6 +20,7 @@ export function demoRecords(): Entity[] {
       kind: "member",
       name,
       phone: `0300 123 450${i}`,
+      qaum: "",
       status: "Active",
       arrival: `${month}-01T09:00`,
       departure: "",

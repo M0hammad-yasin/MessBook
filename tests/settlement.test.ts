@@ -19,6 +19,7 @@ const member = (id: string): Member => ({
   kind: "member",
   name: `Member ${id}`,
   phone: "",
+  qaum: "",
   status: "Active",
   arrival: date + "T09:00",
   departure: "",

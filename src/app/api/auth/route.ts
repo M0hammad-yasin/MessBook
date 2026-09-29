@@ -90,6 +90,8 @@ export async function POST(request: Request) {
         );
       const hash = await passwordHash(body.password);
       const id = crypto.randomUUID();
+      // First user (workspace owner) always receives the admin role.
+      // Any future user creation outside setup should default to "user".
       const created = await raw
         .prepare(
           "INSERT INTO users(id,email,password_hash,name,qaum,role) SELECT ?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",

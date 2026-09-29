@@ -16,6 +16,7 @@ const members: Entity[] = ["ali", "yasin", "omar"].map((id) => ({
   kind: "member",
   name: id,
   phone: "",
+  qaum: "",
   status: "Active",
   arrival: "2026-09-01",
   departure: "",

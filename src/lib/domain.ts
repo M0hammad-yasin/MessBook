@@ -5,6 +5,7 @@ export type Member = {
   kind: "member";
   name: string;
   phone: string;
+  qaum: string;
   status: "Active" | "Left" | "Archived";
   arrival: string;
   departure: string;

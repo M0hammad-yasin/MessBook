@@ -99,6 +99,7 @@ export function EntryForm({
     amount: "",
     name: "",
     phone: "",
+    qaum: "",
     status: "Active",
     arrival: today() + "T09:00",
     departure: "",
@@ -146,6 +147,7 @@ export function EntryForm({
       fields = [
         { key: "name", label: "Full name", required: true },
         { key: "phone", label: "Phone", type: "tel" },
+        { key: "qaum", label: "Qaum" },
         {
           key: "status",
           label: "Status",

@@ -24,6 +24,7 @@ export const entitySchema = z.discriminatedUnion("kind", [
     kind: z.literal("member"),
     name: z.string().trim().min(2).max(100),
     phone: z.string().max(30),
+    qaum: z.string().max(100).default(""),
     status: z.enum(["Active", "Left", "Archived"]),
     arrival: z
       .string()
