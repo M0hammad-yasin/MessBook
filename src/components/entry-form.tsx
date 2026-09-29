@@ -96,7 +96,6 @@ export function EntryForm({
     status: "Active",
     arrival: today() + "T09:00",
     departure: "",
-    stayUnits: "1",
     openingCredit: "0",
     notes: "",
     resource: "Oil",
@@ -108,7 +107,7 @@ export function EntryForm({
     dinner: "0",
     category: "Electricity",
     description: "",
-    method: kind === "payment" ? "Cash" : "Stay units",
+    method: kind === "payment" ? "Cash" : "Equal",
     type: "Deposit",
     memberId: members[0]?.id || "",
     reference: "",
@@ -145,12 +144,6 @@ export function EntryForm({
           key: "status",
           label: "Status",
           options: ["Active", "Left", "Archived"],
-        },
-        {
-          key: "stayUnits",
-          label: "Stay units",
-          type: "number",
-          help: "Used only for stay-based shared expenses. Supports 0.5, 1, 2.5…",
         },
         {
           key: "arrival",
@@ -215,7 +208,7 @@ export function EntryForm({
         {
           key: "method",
           label: "Allocation method",
-          options: ["Stay units", "Equal", "Manual", "Excluded"],
+          options: ["Equal", "Manual", "Excluded"],
         },
       ];
       break;
@@ -316,7 +309,6 @@ export function EntryForm({
       };
       for (const key of moneyFields)
         data[key] = Math.round(Number(v[key] || 0) * 100);
-      data.stayUnits = Number(v.stayUnits);
       const entity = entitySchema.parse(data) as Entity;
       await onSave(entity);
       onClose();

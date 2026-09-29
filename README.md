@@ -73,11 +73,11 @@ No GitHub remote or Cloudflare account is embedded in the source.
 
 ## Daily use
 
-1. Add members, their arrival/departure dates, fractional stay units, and opening credit.
+1. Add members, their arrival/departure dates, and opening credit.
 2. Open **Attendance**, choose the day, tap meals, and save. Meal column headings select or clear all visible members.
 3. Add as many meal expense rows as required. Expenses without eaters remain flagged and unallocated.
 4. Add oil/gas purchases. For an average-tier entry, enter its effective date and per-meal flat rates. In **Cooking log**, explicitly choose which oil and gas entry was used for each meal.
-5. Add shared expenses using stay units, equal shares, exact manual amounts, or exclusion.
+5. Add shared expenses using equal shares, exact manual amounts, or exclusion.
 6. Record deposits, refunds, and reimbursements immediately. A personal purchase credits its payer. When funding a meal/shared expense, record that expense first, then link the personal purchase; linking never creates a second expense.
 7. Review settlements and select a member to open their statement. Positive balances mean the member owes the mess; negative balances mean the mess owes the member.
 8. Close average-tier oil/gas entries by setting an end date. Review the over/undercharge amount and make any refund, reimbursement, or separately documented correction manually.

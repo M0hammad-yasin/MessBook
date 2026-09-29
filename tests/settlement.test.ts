@@ -14,7 +14,7 @@ import type {
   Attendance,
 } from "../src/lib/domain";
 const date = "2026-09-01";
-const member = (id: string, units = 1): Member => ({
+const member = (id: string): Member => ({
   id,
   kind: "member",
   name: `Member ${id}`,
@@ -22,7 +22,6 @@ const member = (id: string, units = 1): Member => ({
   status: "Active",
   arrival: date + "T09:00",
   departure: "",
-  stayUnits: units,
   openingCredit: 0,
   notes: "",
 });
@@ -74,7 +73,7 @@ const shared: Shared = {
   category: "Water",
   description: "Water",
   amount: 10000,
-  method: "Stay units",
+  method: "Equal",
   memberIds: ["a", "b"],
   manual: {},
 };
@@ -100,7 +99,7 @@ test("largest remainder preserves every paisa and is stable by ID", () => {
     { a: 34, b: 33, c: 33 },
   );
 });
-test("allocation invariant over many totals and fractional stay units", () => {
+test("allocation invariant over many totals and fractional weights", () => {
   for (let total = 0; total < 500; total++) {
     const shares = allocate(total, [
       { id: "a", weight: 0.5 },
@@ -135,23 +134,23 @@ test("zero-eater guard exposes warning and never assigns costs", () => {
   assert.equal(r.lines.length, 0);
   assert.equal(r.fuelCharged.oil, undefined);
 });
-test("fractional stay units affect only shared expenses", () => {
+test("manual shared amounts are independent from equal meal splits", () => {
   const r = calculate([
-    member("a", 0.5),
-    member("b", 2.5),
+    member("a"),
+    member("b"),
     food,
     attendance("a"),
     attendance("b"),
-    { ...shared, amount: 60000 },
+    { ...shared, amount: 60000, method: "Manual", manual: {a: 10000, b: 50000} },
   ]);
   assert.equal(r.settlements[0].shared, 10000);
   assert.equal(r.settlements[1].shared, 50000);
   assert.equal(r.settlements[0].food, 5000);
 });
-test("equal shared split ignores stay weights", () => {
+test("equal shared split divides evenly", () => {
   const r = calculate([
-    member("a", 0.5),
-    member("b", 5),
+    member("a"),
+    member("b"),
     { ...shared, method: "Equal" },
   ]);
   assert.equal(r.settlements[0].shared, 5000);

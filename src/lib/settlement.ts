@@ -18,7 +18,7 @@ export function allocate(
   if (!sum) {
     if (total)
       throw new Error(
-        "Allocation requires positive stay units or participating members",
+        "Allocation requires positive allocation weights",
       );
     return Object.fromEntries(weights.map((w) => [w.id, 0]));
   }
@@ -164,10 +164,7 @@ export function calculate(records: Entity[], through = "9999-12-31") {
             e.amount,
             e.memberIds.map((id) => ({
               id,
-              weight:
-                e.method === "Equal"
-                  ? 1
-                  : members.find((m) => m.id === id)?.stayUnits || 0,
+              weight: 1,
             })),
           );
     e.memberIds.forEach((id) =>

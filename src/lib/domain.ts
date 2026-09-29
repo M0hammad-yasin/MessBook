@@ -8,7 +8,6 @@ export type Member = {
   status: "Active" | "Left" | "Archived";
   arrival: string;
   departure: string;
-  stayUnits: number;
   openingCredit: number;
   notes: string;
 };
@@ -60,7 +59,7 @@ export type Shared = {
     "Electricity" | "Water" | "Cleaning" | "Internet" | "Salary" | "Other";
   description: string;
   amount: number;
-  method: "Stay units" | "Equal" | "Manual" | "Excluded";
+  method: "Equal" | "Manual" | "Excluded";
   memberIds: string[];
   manual: Record<string, number>;
 };

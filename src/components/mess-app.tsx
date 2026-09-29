@@ -471,7 +471,7 @@ export default function MessApp() {
   };
   const secondOptions: Partial<Record<Page, string[]>> = {
     fuel: ["Open average", "Closed average", "Direct split"],
-    shared: ["Stay units", "Equal", "Manual", "Excluded"],
+    shared: ["Equal", "Manual", "Excluded"],
     payments: ["Cash", "Bank", "JazzCash", "Easypaisa", "Other"],
   };
   const matchesSearch = (entity: Entity) =>
@@ -1256,11 +1256,6 @@ export default function MessApp() {
                 accessorFn: (r) =>
                   r.kind === "member" ? r.arrival.replace("T", " ") : "",
                 header: "Arrival",
-              },
-              {
-                id: "stay",
-                accessorFn: (r) => (r.kind === "member" ? r.stayUnits : 0),
-                header: "Stay units",
               },
               {
                 id: "balance",

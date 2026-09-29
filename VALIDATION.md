@@ -23,3 +23,5 @@ Tests cover integer-paisa conservation, deterministic residual allocation, zero-
 The source includes Cloudflare Worker/D1 configuration and GitHub verification/deployment workflows. A remote GitHub destination, Cloudflare authentication, and a real D1 binding must be supplied before publication. There is no public deployment or remote repository yet.
 
 Production Free-plan CPU consumption, actual remote account limits, live deployment behavior, and real-device browser behavior have not been measured. The browser mobile check uses a phone-sized viewport.
+
+Units removal: typecheck and all 26 tests pass. Legacy weighted shared expenses are converted atomically to exact manual allocations, with original payloads retained in audit history. Member units are removed on authenticated record access.

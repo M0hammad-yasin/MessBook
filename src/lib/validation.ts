@@ -34,7 +34,6 @@ export const entitySchema = z.discriminatedUnion("kind", [
       .string()
       .max(30)
       .refine((s) => !s || !Number.isNaN(Date.parse(s)), "Invalid departure"),
-    stayUnits: z.number().min(0).max(10000),
     openingCredit: money,
     notes: note,
   }),
@@ -86,7 +85,7 @@ export const entitySchema = z.discriminatedUnion("kind", [
     ]),
     description: z.string().min(1).max(300),
     amount: money.positive(),
-    method: z.enum(["Stay units", "Equal", "Manual", "Excluded"]),
+    method: z.enum(["Equal", "Manual", "Excluded"]),
     memberIds: members,
     manual: z.record(z.string(), money),
   }),
@@ -223,14 +222,6 @@ export function validateState(records: Entity[]) {
     }
     if (e.kind === "shared" && e.method !== "Excluded") {
       if (!e.memberIds.length) throw new Error("Select participating members");
-      if (
-        e.method === "Stay units" &&
-        e.memberIds.reduce(
-          (n, id) => n + (membersById.get(id)?.stayUnits || 0),
-          0,
-        ) <= 0
-      )
-        throw new Error("Allocation requires positive stay units");
       if (
         e.method === "Manual" &&
         (Object.keys(e.manual).some((id) => !e.memberIds.includes(id)) ||

@@ -6,11 +6,14 @@ import { checkOrigin, session } from "@/lib/auth";
 import { records, meta } from "@/db/schema";
 import { prepareEntity, validateState } from "@/lib/validation";
 import type { Entity } from "@/lib/domain";
+import { migrateDatabase } from "@/lib/migrate-database";
 export const dynamic = "force-dynamic";
 export async function GET() {
   try {
-    if (!(await session()))
+    const user = await session();
+    if (!user)
       return NextResponse.json({ error: "Please sign in" }, { status: 401 });
+    await migrateDatabase(user.id);
     const { orm } = await database();
     // D1 batch provides a consistent view of records and the revision used for optimistic concurrency.
     const [rows, versions] = await orm.batch([
@@ -43,6 +46,7 @@ export async function POST(request: Request) {
         archive: z.array(z.string().min(1).max(100)).max(500),
       })
       .parse(await request.json());
+    await migrateDatabase(user.id);
     const { raw, orm } = await database();
     const [rows, version] = await orm.batch([
       orm.select().from(records),
