@@ -64,6 +64,16 @@ import { buildExpenseChanges } from "@/lib/expense-service";
 import { DataTable, exportCsv } from "./data-table";
 import { SpendChart, SplitChart } from "./charts";
 import { MonthlySettlements } from "./monthly-settlements";
+import {
+  getAuth,
+  login,
+  logout,
+  getRecords,
+  saveRecords,
+  getAudit,
+  ApiError,
+  AuditEntry,
+} from "@/lib/api";
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -169,12 +179,10 @@ export default function MessApp() {
   const [archiving, setArchiving] = useState(false);
   const [statementId, setStatementId] = useState<string | null>(null);
   const [statementCategory, setStatementCategory] = useState("All");
-  const [audit, setAudit] = useState<Record<string, string>[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditMore, setAuditMore] = useState(false);
-  const [auditDetail, setAuditDetail] = useState<Record<string, string> | null>(
-    null,
-  );
+  const [auditDetail, setAuditDetail] = useState<AuditEntry | null>(null);
   const [reportMode, setReportMode] = useState<"Daily" | "Monthly">("Daily");
   const records = state.records;
   const members = byKind(records, "member");
@@ -216,13 +224,12 @@ export default function MessApp() {
     setError("");
   }
   async function refresh() {
-    const response = await fetch("/api/records", { cache: "no-store" });
-    const data = await response.json();
-    if (!response.ok) {
-      if (response.status === 401) setAuth("login");
-      throw new Error(data.error);
+    try {
+      setState(await getRecords());
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) setAuth("login");
+      throw err;
     }
-    setState(data);
   }
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("demo") === "1") {
@@ -231,9 +238,7 @@ export default function MessApp() {
     }
     (async () => {
       try {
-        const r = await fetch("/api/auth");
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error);
+        const data = await getAuth();
         setNeedsSetup(data.needsSetup);
         if (data.user) {
           setUserName(data.user.name);
@@ -270,19 +275,16 @@ export default function MessApp() {
       validateState(next);
       setState({ records: next, revision: state.revision + 1 });
     } else {
-      const response = await fetch("/api/records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      try {
+        const data = await saveRecords({
           revision: state.revision,
           meal,
           upsert,
           archive: archived,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        if (response.status === 409) {
+        });
+        setState(data);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
           await refresh();
           setForm(null);
           setError(
@@ -292,9 +294,8 @@ export default function MessApp() {
             "Records changed. Reopen this entry to review the latest version.",
           );
         }
-        throw new Error(data.error);
+        throw err;
       }
-      setState(data);
     }
     setNotice(
       demo
@@ -319,16 +320,14 @@ export default function MessApp() {
     }
     setAuditBusy(true);
     try {
-      const before =
+      const cursor =
         older && audit.length
-          ? "?before=" +
-            encodeURIComponent(audit[audit.length - 1].at) +
-            "&id=" +
-            encodeURIComponent(audit[audit.length - 1].id)
-          : "";
-      const r = await fetch("/api/audit" + before);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+          ? {
+              before: audit[audit.length - 1].at,
+              id: audit[audit.length - 1].id,
+            }
+          : undefined;
+      const data = await getAudit(cursor);
       setAudit(older ? [...audit, ...data] : data);
       setAuditMore(data.length === 200);
     } catch (e) {
@@ -457,8 +456,7 @@ export default function MessApp() {
         setError={setError}
         onDemo={enterDemo}
         onReady={async () => {
-          const r = await fetch("/api/auth");
-          const data = await r.json();
+          const data = await getAuth();
           setUserName(data.user?.name || "Admin");
           await refresh();
           setAuth("ready");
@@ -738,8 +736,9 @@ export default function MessApp() {
               title="Sign out"
               onClick={async () => {
                 if (!demo) {
-                  const r = await fetch("/api/auth", { method: "DELETE" });
-                  if (!r.ok) {
+                  try {
+                    await logout();
+                  } catch {
                     setError("Sign out failed. Please retry.");
                     return;
                   }
@@ -1876,7 +1875,7 @@ export default function MessApp() {
             {auditDetail?.user_name} · {auditDetail?.action} · {auditDetail?.at}
           </DialogDescription>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            {["old_value", "new_value"].map((k) => (
+            {(["old_value", "new_value"] as const).map((k) => (
               <div key={k}>
                 <h3 className="mb-2 text-sm font-medium">
                   {k === "old_value" ? "Before" : "After"}
@@ -1961,13 +1960,7 @@ function Login({
               setError("");
               try {
                 const data = Object.fromEntries(new FormData(e.currentTarget));
-                const r = await fetch("/api/auth", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(data),
-                });
-                const result = await r.json();
-                if (!r.ok) throw new Error(result.error);
+                await login(data);
                 await onReady();
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Unable to sign in");
