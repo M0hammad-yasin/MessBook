@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { byKind, type Entity, type Cooking, type Fuel } from "./domain";
-const id = z.string().min(1).max(100);
-const date = z
+import { memberStays, isResidentOn, validateStays } from "./stays";
+const id = z.string().min(1).max(160);
+export const date = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine(
@@ -26,6 +27,17 @@ export const entitySchema = z.discriminatedUnion("kind", [
     phone: z.string().max(30),
     qaum: z.string().max(100).default(""),
     status: z.enum(["Active", "Left", "Archived"]),
+    stays: z
+      .array(
+        z.object({
+          id,
+          arrival: z.string().min(10).max(30),
+          departure: z.string().max(30),
+        }),
+      )
+      .min(1)
+      .max(200)
+      .optional(),
     arrival: z
       .string()
       .min(10)
@@ -101,7 +113,8 @@ export const entitySchema = z.discriminatedUnion("kind", [
     kind: z.literal("payment"),
     date,
     memberId: id,
-    type: z.enum(["Deposit", "Refund", "Reimbursement"]),
+    type: z.enum(["Deposit", "Refund", "Reimbursement", "Purchase credit"]),
+    sourceId: z.string().max(100).optional(),
     amount: money.positive(),
     method: z.enum(["Cash", "Bank", "JazzCash", "Easypaisa", "Other"]),
     reference: z.string().max(100),
@@ -124,6 +137,14 @@ export function prepareEntity(input: unknown, records: Entity[]): Entity {
   const previous = records.find((r) => r.id === entity.id);
   if (previous && previous.kind !== entity.kind)
     throw new Error("Record type cannot be changed");
+  if (entity.kind === "member") {
+    entity.stays = [...memberStays(entity)].sort((a, b) =>
+      a.arrival.localeCompare(b.arrival),
+    );
+    validateStays(entity, true);
+    entity.arrival = entity.stays[0].arrival;
+    entity.departure = entity.stays.at(-1)!.departure;
+  }
   if (entity.kind === "cooking") {
     const old = previous as Cooking | undefined;
     for (const resource of ["oil", "gas", "chai"] as const) {
@@ -185,8 +206,7 @@ export function validateState(records: Entity[]) {
     if ("paidBy" in e && e.paidBy) checkMember(e.paidBy);
     if ("memberId" in e) checkMember(e.memberId);
     if ("memberIds" in e) e.memberIds.forEach(checkMember);
-    if (e.kind === "member" && e.departure && e.departure < e.arrival)
-      throw new Error("Departure must follow arrival");
+    if (e.kind === "member") validateStays(e);
     if (e.kind === "attendance" || e.kind === "cooking") {
       const key = `${e.kind}|${e.date}|${e.meal}|${e.kind === "attendance" ? e.memberId : ""}`;
       if (unique.has(key))
@@ -195,10 +215,7 @@ export function validateState(records: Entity[]) {
     }
     if (e.kind === "attendance") {
       const m = membersById.get(e.memberId)!;
-      if (
-        e.date < m.arrival.slice(0, 10) ||
-        (m.departure && e.date > m.departure.slice(0, 10))
-      )
+      if (!isResidentOn(m, e.date))
         throw new Error("Attendance must fall within the member’s stay");
     }
     if (e.kind === "fuel") {

@@ -1,5 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { memberStays, isKnownResidentOn } from "@/lib/stays";
+import { StayPeriodsEditor } from "./stay-periods-editor";
+import type { Stay } from "@/lib/domain";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -80,11 +83,24 @@ export function EntryForm({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const members = byKind(records, "member");
+  const [stays, setStays] = useState<Stay[]>(
+    editing?.kind === "member"
+      ? memberStays(editing)
+      : [
+          {
+            id: crypto.randomUUID(),
+            arrival: today() + "T09:00",
+            departure: "",
+          },
+        ],
+  );
   const [selected, setSelected] = useState<string[]>(
     editing && "memberIds" in editing
       ? editing.memberIds
       : kind === "shared"
-        ? members.filter((m) => m.status === "Active").map((m) => m.id)
+        ? members
+            .filter((m) => isKnownResidentOn(m, defaultDate || today()))
+            .map((m) => m.id)
         : [],
   );
   const legacyCredits = editing
@@ -141,6 +157,14 @@ export function EntryForm({
     defaultValues: initial,
   });
   const values = form.watch();
+  useEffect(() => {
+    if (kind === "shared" && !editing)
+      setSelected(
+        members
+          .filter((m) => isKnownResidentOn(m, values.date))
+          .map((m) => m.id),
+      );
+  }, [values.date]);
   let fields: Field[] = [];
   switch (kind) {
     case "member":
@@ -152,14 +176,8 @@ export function EntryForm({
           key: "status",
           label: "Status",
           options: ["Active", "Left", "Archived"],
+          help: "Returning to meals? Choose Active and add a new stay. Archived members still reside here and share house bills.",
         },
-        {
-          key: "arrival",
-          label: "Arrival",
-          type: "datetime-local",
-          required: true,
-        },
-        { key: "departure", label: "Departure", type: "datetime-local" },
         { key: "openingCredit", label: "Opening credit (PKR)", type: "number" },
         note,
       ];
@@ -327,6 +345,13 @@ export function EntryForm({
     try {
       const data: Record<string, unknown> = {
         ...v,
+        ...(kind === "member"
+          ? {
+              stays,
+              arrival: stays[0]?.arrival || "",
+              departure: stays.at(-1)?.departure || "",
+            }
+          : {}),
         id: editing?.id || crypto.randomUUID(),
         kind,
         memberIds: selected,
@@ -417,6 +442,9 @@ export function EntryForm({
               </label>
             ))}
           </div>
+          {kind === "member" && (
+            <StayPeriodsEditor value={stays} onChange={setStays} />
+          )}
           {kind === "cooking" && (
             <div className="space-y-4">
               {(["oil", "gas"] as const).map((resource) => {
@@ -489,12 +517,16 @@ export function EntryForm({
                   onClick={() =>
                     setSelected(
                       members
-                        .filter((m) => m.status === "Active")
+                        .filter((m) =>
+                          kind === "shared"
+                            ? isKnownResidentOn(m, values.date)
+                            : m.status === "Active",
+                        )
                         .map((m) => m.id),
                     )
                   }
                 >
-                  Select active
+                  {kind === "shared" ? "Select residents" : "Select active"}
                 </button>
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

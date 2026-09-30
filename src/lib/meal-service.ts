@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { byKind, type Entity, type Meal, type Cooking } from "./domain";
-import { prepareEntity } from "./validation";
+import { prepareEntity, date } from "./validation";
+import { isResidentOn } from "./stays";
 
 const keySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date,
   meal: z.enum(["Breakfast", "Lunch", "Dinner"]),
 });
 export const mealInputSchema = keySchema.extend({
@@ -134,12 +135,15 @@ export function buildMealChanges(
     const member = members.find((m) => m.id === id);
     if (
       !member ||
+      !isResidentOn(member, value.date) ||
       (member.status !== "Active" &&
         !oldAttendance.some((a) => a.memberId === id))
     )
       throw new Error("Only active members can be added as eaters");
   }
   for (const item of value.items) {
+    if (item.id.startsWith("credit:"))
+      throw new Error("Ingredient ID uses a reserved payment prefix");
     if (
       records.some((r) => r.id === item.id) &&
       !previous.some((r) => r.kind === "food" && r.id === item.id)

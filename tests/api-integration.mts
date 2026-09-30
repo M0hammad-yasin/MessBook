@@ -8,9 +8,18 @@ import type { Entity, State } from "../src/lib/domain.ts";
 
 const base = "http://localhost:3000";
 const folder = resolve(".wrangler/state/v3/d1/miniflare-D1DatabaseObject");
-const file = readdirSync(folder).filter(
-  (p) => p.endsWith(".sqlite") && p !== "metadata.sqlite",
-);
+const file = readdirSync(folder).filter((p) => {
+  if (!p.endsWith(".sqlite") || p === "metadata.sqlite") return false;
+  const candidate = new DatabaseSync(resolve(folder, p), { readOnly: true });
+  try {
+    return candidate
+      .prepare("PRAGMA table_info(users)")
+      .all()
+      .some((c) => c.name === "version");
+  } finally {
+    candidate.close();
+  }
+});
 assert.equal(file.length, 1, "Expected one local test database");
 const db = new DatabaseSync(resolve(folder, file[0]));
 db.exec("PRAGMA busy_timeout=5000");
@@ -34,6 +43,8 @@ const memberIds = [prefix + "-ali", prefix + "-yasin"];
 let cookie = "";
 let state: State = { records: [], revision: 0 };
 let userId = "";
+const extraUserIds: string[] = [];
+let adminCookie = "";
 const seededIds: string[] = [];
 let passed = 0;
 async function request(
@@ -68,9 +79,22 @@ async function save(body: Record<string, unknown>) {
   state = result.data;
 }
 try {
-  await check("unauthenticated records are protected", async () => {
-    assert.equal((await request("/api/records")).response.status, 401);
-  });
+  await check(
+    "initial workspace is required before public records or registration",
+    async () => {
+      assert.equal((await request("/api/records")).response.status, 503);
+      assert.equal(
+        (
+          await request("/api/auth/signup", "POST", {
+            name: "Early user",
+            email,
+            password,
+          })
+        ).response.status,
+        409,
+      );
+    },
+  );
   await check("local setup creates a secure session", async () => {
     const r = await request("/api/auth", "POST", {
       email,
@@ -81,6 +105,8 @@ try {
     assert.equal(r.response.status, 200, JSON.stringify(r.data));
     assert.match(r.response.headers.get("set-cookie")!, /HttpOnly/i);
     cookie = r.response.headers.get("set-cookie")!.split(";")[0];
+    adminCookie = cookie;
+    assert.equal((await request("/api/auth")).data.user.role, "admin");
     userId = String(
       db.prepare("SELECT id FROM users WHERE email=?").get(email)!.id,
     );
@@ -141,6 +167,164 @@ try {
       );
     },
   );
+  await check(
+    "visitors can view without writes or access to account administration",
+    async () => {
+      cookie = "";
+      const before = db.prepare("SELECT revision FROM meta").get()!.revision;
+      assert.equal((await request("/api/records")).response.status, 200);
+      assert.equal(
+        (
+          await request("/api/records", "POST", {
+            revision: state.revision,
+            upsert: [],
+          })
+        ).response.status,
+        401,
+      );
+      assert.equal((await request("/api/users")).response.status, 401);
+      assert.equal((await request("/api/audit")).response.status, 401);
+      assert.equal(
+        db.prepare("SELECT revision FROM meta").get()!.revision,
+        before,
+      );
+      cookie = adminCookie;
+    },
+  );
+  let pendingCookie = "",
+    pendingId = "";
+  await check(
+    "signup always starts with user role and prevents role injection",
+    async () => {
+      const registration = {
+        name: "Pending QA",
+        email: prefix + "-pending@example.invalid",
+        password,
+      };
+      assert.equal(
+        (
+          await request("/api/auth/signup", "POST", {
+            ...registration,
+            role: "admin",
+          })
+        ).response.status,
+        400,
+      );
+      const signup = await request("/api/auth/signup", "POST", registration);
+      assert.equal(signup.response.status, 201, JSON.stringify(signup.data));
+      pendingCookie = signup.response.headers.get("set-cookie")!.split(";")[0];
+      cookie = pendingCookie;
+      const identity = (await request("/api/auth")).data.user;
+      pendingId = identity.id;
+      extraUserIds.push(pendingId);
+      assert.equal(identity.role, "user");
+      assert.equal(
+        (await request("/api/auth/signup", "POST", registration)).response
+          .status,
+        409,
+      );
+      assert.equal((await request("/api/records")).response.status, 200);
+      assert.equal(
+        (
+          await request("/api/records", "POST", {
+            revision: state.revision,
+            upsert: [],
+          })
+        ).response.status,
+        403,
+      );
+      assert.equal((await request("/api/users")).response.status, 403);
+      assert.equal((await request("/api/audit")).response.status, 403);
+      cookie = adminCookie;
+    },
+  );
+  await check(
+    "admins approve accounts; moderators can write but cannot manage users",
+    async () => {
+      const listing = await request("/api/users?q=Pending&role=user");
+      assert.equal(listing.data.users.length, 1);
+      assert.equal("password_hash" in listing.data.users[0], false);
+      const approved = await request("/api/users", "PATCH", {
+        id: pendingId,
+        name: "Approved QA",
+        role: "moderator",
+        version: 0,
+      });
+      assert.equal(
+        approved.response.status,
+        200,
+        JSON.stringify(approved.data),
+      );
+      assert.equal(
+        (
+          await request("/api/users", "PATCH", {
+            id: pendingId,
+            name: "Stale QA",
+            role: "user",
+            version: 0,
+          })
+        ).response.status,
+        409,
+      );
+      cookie = pendingCookie;
+      assert.equal((await request("/api/auth")).data.user.name, "Approved QA");
+      assert.equal((await request("/api/auth")).data.user.role, "moderator");
+      await save({ upsert: [] });
+      assert.equal((await request("/api/users")).response.status, 403);
+      assert.equal(
+        (
+          await request("/api/users", "PATCH", {
+            id: userId,
+            name: "Override",
+            role: "user",
+            version: 0,
+          })
+        ).response.status,
+        403,
+      );
+      cookie = adminCookie;
+    },
+  );
+  await check(
+    "demotion takes effect in an existing session and last admin is protected",
+    async () => {
+      assert.equal(
+        (
+          await request("/api/users", "PATCH", {
+            id: pendingId,
+            name: "Pending again",
+            role: "user",
+            version: 1,
+          })
+        ).response.status,
+        200,
+      );
+      cookie = pendingCookie;
+      assert.equal(
+        (
+          await request("/api/records", "POST", {
+            revision: state.revision,
+            upsert: [],
+          })
+        ).response.status,
+        403,
+      );
+      assert.equal((await request("/api/auth")).data.user.role, "user");
+      cookie = adminCookie;
+      assert.equal(
+        (
+          await request("/api/users", "PATCH", {
+            id: userId,
+            name: "Local QA",
+            role: "user",
+            version: 0,
+          })
+        ).response.status,
+        409,
+      );
+      assert.equal((await request("/api/auth")).data.user.role, "admin");
+    },
+  );
   const item = {
     id: prefix + "-eggs",
     description: "Eggs",
@@ -180,6 +364,14 @@ try {
         2,
       );
       assert.deepEqual((await request("/api/records")).data, state);
+      const persisted = db
+        .prepare("SELECT payload FROM records WHERE id=? AND deleted=0")
+        .get("credit:" + item.id)!;
+      assert.equal(
+        JSON.parse(String(persisted.payload)).type,
+        "Purchase credit",
+      );
+      assert.equal(JSON.parse(String(persisted.payload)).amount, 25000);
     },
   );
   await check(
@@ -234,6 +426,33 @@ try {
       assert.deepEqual(
         before.map((s) => s.credit),
         [25000, 50000],
+      );
+    },
+  );
+  await check(
+    "source credits can be removed and restored without reusing user-owned IDs",
+    async () => {
+      await save({
+        meal: { ...edit, items: [{ ...item, paidBy: "" }, edit.items[1]] },
+      });
+      assert.equal(
+        db
+          .prepare("SELECT deleted FROM records WHERE id=?")
+          .get("credit:" + item.id)!.deleted,
+        1,
+      );
+      await save({ meal: edit });
+      assert.equal(
+        db
+          .prepare("SELECT deleted FROM records WHERE id=?")
+          .get("credit:" + item.id)!.deleted,
+        0,
+      );
+      assert.equal(
+        state.records.filter(
+          (r) => r.kind === "payment" && r.id === "credit:" + item.id,
+        ).length,
+        1,
       );
     },
   );
@@ -303,6 +522,13 @@ try {
       );
       await save({ meal: { ...edit, items: [], remove: true } });
       assert.equal(calculate(state.records).mealSummaries.length, 0);
+      for (const id of [item.id, prefix + "-roti"])
+        assert.equal(
+          db
+            .prepare("SELECT deleted FROM records WHERE id=?")
+            .get("credit:" + id)!.deleted,
+          1,
+        );
       assert.deepEqual(
         calculate(state.records).settlements.map((s) => s.credit),
         [100000, 0],
@@ -329,7 +555,17 @@ try {
   });
   await check("logout invalidates the session", async () => {
     await request("/api/auth", "DELETE");
-    assert.equal((await request("/api/records")).response.status, 401);
+    assert.equal((await request("/api/auth")).data.user, null);
+    assert.equal((await request("/api/records")).response.status, 200);
+    assert.equal(
+      (
+        await request("/api/records", "POST", {
+          revision: state.revision,
+          upsert: [],
+        })
+      ).response.status,
+      401,
+    );
   });
   console.log(`${passed} local D1/API checks passed.`);
 } finally {
@@ -348,6 +584,11 @@ try {
   try {
     for (const id of new Set([...created, ...seededIds]))
       db.prepare("DELETE FROM records WHERE id=?").run(id);
+    for (const id of extraUserIds) {
+      db.prepare("DELETE FROM audit WHERE user_id=?").run(id);
+      db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
+      db.prepare("DELETE FROM users WHERE id=?").run(id);
+    }
     db.prepare("DELETE FROM audit WHERE user_id=?").run(userId);
     db.prepare("DELETE FROM sessions WHERE user_id=?").run(userId);
     db.prepare("DELETE FROM users WHERE id=? AND email=?").run(userId, email);

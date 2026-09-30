@@ -1,5 +1,6 @@
 export const meals = ["Breakfast", "Lunch", "Dinner"] as const;
 export type Meal = (typeof meals)[number];
+export type Stay = { id: string; arrival: string; departure: string };
 export type Member = {
   id: string;
   kind: "member";
@@ -9,6 +10,7 @@ export type Member = {
   status: "Active" | "Left" | "Archived";
   arrival: string;
   departure: string;
+  stays?: Stay[];
   openingCredit: number;
   notes: string;
 };
@@ -80,7 +82,8 @@ export type Payment = {
   kind: "payment";
   date: string;
   memberId: string;
-  type: "Deposit" | "Refund" | "Reimbursement";
+  type: "Deposit" | "Refund" | "Reimbursement" | "Purchase credit";
+  sourceId?: string;
   amount: number;
   method: "Cash" | "Bank" | "JazzCash" | "Easypaisa" | "Other";
   reference: string;

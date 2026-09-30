@@ -96,7 +96,7 @@ export async function POST(request: Request) {
         .prepare(
           "INSERT INTO users(id,email,password_hash,name,qaum,role) SELECT ?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM users)",
         )
-        .bind(id, body.email, hash, body.name, body.qaum || null, body.role || "admin")
+        .bind(id, body.email, hash, body.name, body.qaum || null, "admin")
         .run();
       if (!created.meta.changes)
         return NextResponse.json(

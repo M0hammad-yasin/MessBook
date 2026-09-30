@@ -4,26 +4,38 @@ import { z } from "zod";
 import { database } from "@/lib/db";
 import { checkOrigin, session } from "@/lib/auth";
 import { records, meta } from "@/db/schema";
-import { prepareEntity, validateState } from "@/lib/validation";
+import { validateState } from "@/lib/validation";
 import type { Entity } from "@/lib/domain";
-import { buildMealChanges } from "@/lib/meal-service";
-import { buildExpenseChanges } from "@/lib/expense-service";
 import { migrateDatabase } from "@/lib/migrate-database";
+import { prepareRecordMutation, isAutomaticCredit } from "@/lib/record-service";
+import { migrateRecords } from "@/lib/migrations";
+import { can } from "@/lib/permissions";
+import { requirePermission, AccessError } from "@/lib/access";
 export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const user = await session();
-    if (!user)
-      return NextResponse.json({ error: "Please sign in" }, { status: 401 });
-    await migrateDatabase(user.id);
-    const { orm } = await database();
+    if (can(user?.role, "records:write")) await migrateDatabase(user!.id);
+    const { orm, raw } = await database();
+    if (!(await raw.prepare("SELECT id FROM users LIMIT 1").first()))
+      return NextResponse.json(
+        { error: "Create the initial workspace first" },
+        { status: 503 },
+      );
     // D1 batch provides a consistent view of records and the revision used for optimistic concurrency.
     const [rows, versions] = await orm.batch([
       orm.select().from(records).where(eq(records.deleted, 0)),
       orm.select().from(meta).where(eq(meta.id, 1)),
     ]);
     return NextResponse.json(
-      { records: rows.map((r) => r.payload), revision: versions[0].revision },
+      {
+        records: migrateRecords(rows.map((r) => r.payload)).map((r) =>
+          !can(user?.role, "records:write") && r.kind === "member"
+            ? { ...r, phone: "", notes: "" }
+            : r,
+        ),
+        revision: versions[0].revision,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {
@@ -36,9 +48,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     checkOrigin(request);
-    const user = await session();
-    if (!user)
-      return NextResponse.json({ error: "Please sign in" }, { status: 401 });
+    const user = await requirePermission("records:write");
     if (Number(request.headers.get("content-length") || 0) > 500000)
       throw new Error("Request is too large");
     const body = z
@@ -61,14 +71,17 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     const existing = rows.filter((r) => !r.deleted).map((r) => r.payload);
-    if (body.meal && (body.upsert.length || body.archive.length))
-      throw new Error("Save a meal separately from other records");
-    const mutation = body.meal
-      ? buildMealChanges(body.meal, existing)
-      : buildExpenseChanges(body.upsert, body.archive, existing);
-    const upsert = mutation.upsert.map((e) => prepareEntity(e, existing));
+    const mutation = prepareRecordMutation(body, existing);
+    const upsert = mutation.upsert;
     const changedIds = [...upsert.map((e) => e.id), ...mutation.archive];
-    if (rows.some((r) => r.deleted && changedIds.includes(r.id)))
+    if (
+      rows.some(
+        (r) =>
+          r.deleted &&
+          changedIds.includes(r.id) &&
+          !upsert.some((u) => u.id === r.id && isAutomaticCredit(u)),
+      )
+    )
       throw new Error("Archived record IDs cannot be reused");
     if (mutation.archive.some((id) => !existing.some((e) => e.id === id)))
       throw new Error("Record to archive was not found");
@@ -92,9 +105,9 @@ export async function POST(request: Request) {
     const statements = [
       raw
         .prepare(
-          "UPDATE meta SET revision=revision+1,mutation_id=? WHERE id=1 AND revision=?",
+          "UPDATE meta SET revision=revision+1,mutation_id=? WHERE id=1 AND revision=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND role IN ('admin','moderator'))",
         )
-        .bind(token, body.revision),
+        .bind(token, body.revision, user.id),
     ];
     // JSON batching keeps bulk attendance below the Free plan's per-request query limit.
     statements.push(
@@ -150,7 +163,7 @@ export async function POST(request: Request) {
               ? error.message
               : "Unable to save",
       },
-      { status: 400 },
+      { status: error instanceof AccessError ? error.status : 400 },
     );
   }
 }

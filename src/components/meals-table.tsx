@@ -6,6 +6,7 @@ import { readMeal } from "@/lib/meal-service";
 import { byKind, meals, pkr, type Entity, type Meal } from "@/lib/domain";
 import { DataTable } from "./data-table";
 import { Button } from "./ui/button";
+import { useAccess } from "./access-context";
 
 export function MealsTable({
   records,
@@ -24,6 +25,7 @@ export function MealsTable({
   memberFilter: string;
   onEdit: (date: string, meal: Meal) => void;
 }) {
+  const canEdit = useAccess().can("records:write");
   const [memberRole, setMemberRole] = useState("Eater or buyer");
   const [resource, setResource] = useState("All resources");
   const [status, setStatus] = useState("All meals");
@@ -186,11 +188,11 @@ export function MealsTable({
               <Button
                 variant="ghost"
                 size="sm"
-                aria-label={`Edit ${row.original.date} ${row.original.meal}`}
+                aria-label={`${canEdit ? "Edit" : "View"} ${row.original.date} ${row.original.meal}`}
                 onClick={() => onEdit(row.original.date, row.original.meal)}
               >
                 <Pencil size={15} />
-                Edit
+                {canEdit ? "Edit" : "View"}
               </Button>
             ),
           },

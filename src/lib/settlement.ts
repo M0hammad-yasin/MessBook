@@ -185,10 +185,12 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       e.id,
       e.memberId,
       e.date,
-      "Payment",
-      `${e.type} · ${e.method}${e.reference ? " · " + e.reference : ""}`,
-      e.type === "Deposit" ? 0 : e.amount,
-      e.type === "Deposit" ? e.amount : 0,
+      e.type === "Purchase credit" ? "Purchase" : "Payment",
+      e.type === "Purchase credit"
+        ? e.notes
+        : `${e.type} · ${e.method}${e.reference ? " · " + e.reference : ""}`,
+      e.type === "Deposit" || e.type === "Purchase credit" ? 0 : e.amount,
+      e.type === "Deposit" || e.type === "Purchase credit" ? e.amount : 0,
     ),
   );
   byKind(records, "purchase").forEach((e) =>
@@ -202,12 +204,18 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       e.amount,
     ),
   );
+  const creditedSources = new Set(
+    byKind(records, "payment")
+      .filter((p) => p.type === "Purchase credit")
+      .map((p) => p.sourceId),
+  );
   for (const entry of records) {
     if (
       (entry.kind === "food" ||
         entry.kind === "fuel" ||
         entry.kind === "shared") &&
-      entry.paidBy
+      entry.paidBy &&
+      !creditedSources.has(entry.id)
     ) {
       add(
         "buyer-" + entry.id,

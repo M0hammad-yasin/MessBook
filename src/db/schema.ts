@@ -13,14 +13,23 @@ export const records = sqliteTable(
 export const USER_ROLES = ["admin", "moderator", "user"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-export const users = sqliteTable("users", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
-  name: text("name").notNull(),
-  qaum: text("qaum"),
-  role: text("role", { enum: USER_ROLES }).$type<UserRole>(),
-});
+export const users = sqliteTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull().unique(),
+    passwordHash: text("password_hash").notNull(),
+    name: text("name").notNull(),
+    qaum: text("qaum"),
+    role: text("role", { enum: USER_ROLES }).$type<UserRole>(),
+    version: integer("version").notNull().default(0),
+    mutationId: text("mutation_id").notNull().default(""),
+  },
+  (t) => [
+    index("users_role_name").on(t.role, t.name, t.id),
+    index("users_name_id").on(t.name, t.id),
+  ],
+);
 export const sessions = sqliteTable(
   "sessions",
   {

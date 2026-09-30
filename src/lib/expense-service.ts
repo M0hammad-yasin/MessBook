@@ -10,6 +10,17 @@ export function buildExpenseChanges(
   if (
     upsert.some(
       (r) =>
+        r.id.startsWith("credit:") ||
+        (r.kind === "payment" && (r.sourceId || r.type === "Purchase credit")),
+    ) ||
+    archive.some((id) => id.startsWith("credit:"))
+  )
+    throw new Error(
+      "Automatic purchase credits are managed by their source expense. Edit that expense instead.",
+    );
+  if (
+    upsert.some(
+      (r) =>
         r.kind === "food" || r.kind === "cooking" || r.kind === "attendance",
     ) ||
     archive.some((id) =>

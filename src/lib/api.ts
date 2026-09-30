@@ -12,6 +12,8 @@ import type {
   Attendance,
 } from "./domain";
 import type { MealInput } from "./meal-service";
+import type { SessionUser } from "./permissions";
+import type { ManagedUser } from "./user-service";
 
 // ---------------------------------------------------------------------------
 // Custom API Error
@@ -67,11 +69,13 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export type AuthStatus = {
-  user: { id: string; name: string; email: string } | null;
+  user: SessionUser | null;
   needsSetup: boolean;
 };
 
 export const authApi = {
+  signup: (data: Record<string, unknown>) =>
+    request<void>({ url: "/auth/signup", method: "POST", data }),
   /** GET /api/auth — check current session & setup state */
   getStatus: (): Promise<AuthStatus> =>
     request<AuthStatus>({
@@ -99,6 +103,15 @@ export const authApi = {
       url: "/auth",
       method: "DELETE",
     }),
+};
+export const usersApi = {
+  list: (params: Record<string, string>) =>
+    request<{
+      users: ManagedUser[];
+      next: { name: string; id: string } | null;
+    }>({ url: "/users", method: "GET", params }),
+  update: (data: Pick<ManagedUser, "id" | "name" | "role" | "version">) =>
+    request<ManagedUser>({ url: "/users", method: "PATCH", data }),
 };
 
 // ---------------------------------------------------------------------------
@@ -168,7 +181,8 @@ export const entityCrud = {
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   cooking: {
-    save: (item: Cooking, revision: number) => recordsApi.upsert(item, revision),
+    save: (item: Cooking, revision: number) =>
+      recordsApi.upsert(item, revision),
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   shared: {
@@ -176,19 +190,23 @@ export const entityCrud = {
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   payment: {
-    save: (item: Payment, revision: number) => recordsApi.upsert(item, revision),
+    save: (item: Payment, revision: number) =>
+      recordsApi.upsert(item, revision),
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   purchase: {
-    save: (item: Purchase, revision: number) => recordsApi.upsert(item, revision),
+    save: (item: Purchase, revision: number) =>
+      recordsApi.upsert(item, revision),
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   attendance: {
-    save: (item: Attendance, revision: number) => recordsApi.upsert(item, revision),
+    save: (item: Attendance, revision: number) =>
+      recordsApi.upsert(item, revision),
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
   meal: {
-    save: (meal: MealInput, revision: number) => recordsApi.saveMeal(meal, revision),
+    save: (meal: MealInput, revision: number) =>
+      recordsApi.saveMeal(meal, revision),
     archive: (id: string, revision: number) => recordsApi.archive(id, revision),
   },
 };

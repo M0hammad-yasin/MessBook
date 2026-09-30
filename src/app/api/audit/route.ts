@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { session } from "@/lib/auth";
 import { database } from "@/lib/db";
+import { can } from "@/lib/permissions";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
-  if (!(await session()))
-    return NextResponse.json({ error: "Please sign in" }, { status: 401 });
+  const user = await session();
+  if (!can(user?.role, "audit:read"))
+    return NextResponse.json(
+      { error: "Activity history requires moderator or administrator access" },
+      { status: user ? 403 : 401 },
+    );
   const params = new URL(request.url).searchParams;
   const before = params.get("before") || "9999";
   const beforeId = params.get("id") || "\uffff";

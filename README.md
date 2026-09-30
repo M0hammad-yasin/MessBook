@@ -31,7 +31,7 @@ npm run db:local
 npm run dev
 ```
 
-In PowerShell, use `Copy-Item .dev.vars.example .dev.vars` instead of `cp` if preferred. Open `http://localhost:3000`. Choose **Set up your mess**, enter the private setup token, your name, email, and a password of at least 12 characters. Setup can create only the first administrator. All subsequent visits use the sign-in form.
+In PowerShell, use `Copy-Item .dev.vars.example .dev.vars` instead of `cp` if preferred. Open `http://localhost:3000`. Choose **Set up your mess**, enter the private setup token, your name, email, and a password of at least 12 characters. Setup can create only the first administrator. After setup, `/` opens the public Home page. `/signup` creates a view-only account and `/signin` signs in an existing account. Only an administrator can approve a registered account for editing.
 
 `http://localhost:3000/?demo=1` opens a clearly labeled demonstration. Sample records are generated in memory. Demo changes are never written to D1 and disappear on reload. The live workspace starts empty.
 
@@ -69,11 +69,11 @@ git push -u origin main
 
 The verification workflow runs type checks, accounting tests, and the Next.js production build. The deployment workflow is manual (`workflow_dispatch`) and uses a GitHub environment named `production`. Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository/environment secrets. The token needs access to this Worker's deployment and this D1 database. Configure the runtime `SETUP_TOKEN` with Wrangler before first setup.
 
-No GitHub remote or Cloudflare account is embedded in the source.
+The repository contains the configured D1 database identifier, but no credentials. Keep Cloudflare tokens and setup secrets outside source control.
 
 ## Daily use
 
-1. Add members, their arrival/departure dates, and opening credit. Shared expenses use Equal, Manual, or Excluded allocation; there is no member unit field.
+1. Add mess members, their stay periods, and opening credit. Login accounts are separate from mess members. Shared expenses use Equal, Manual, or Excluded allocation; there is no member unit field.
 2. Open **Meals** and choose **Add meal**. Choose the date and Breakfast, Lunch, or Dinner. If that meal already exists, its items and attendance load for editing; a second meal for the same date and time is rejected.
 3. Add ingredient rows with an item name, PKR price, and buyer. Use **Add another item** for each purchase. Choose **Mess fund** if paid from mess cash. Each member buyer receives credit automatically; do not enter another payment for that purchase.
 4. Select the active members who ate, optionally choose Oil/Gas/Chai entries used, and save once. The total and average update as you type. Saving replaces the meal's charges and buyer credits. Add, edit, or remove items later in the same meal. Historical inactive eaters remain available separately when editing old meals.
@@ -81,11 +81,17 @@ No GitHub remote or Cloudflare account is embedded in the source.
 6. Add shared expenses with their buyer and Equal, Manual, or Excluded allocation. Record deposits, refunds, and reimbursements on **Payments & credit**. Automatic purchase credits appear there and in member statements; edit the original expense to change them.
 7. Review settlements and select a member to open their statement. Positive balances mean the member owes the mess; negative balances mean the mess owes the member.
 8. Close average resource entries with an end date and review over/undercharges. No automatic reconciliation adjustment is posted. Use a documented refund, reimbursement, or correction when needed.
-9. When someone leaves, set their departure and status to **Left**. Retain the member record for financial history.
+9. When someone leaves, close their current stay with a departure and set status to **Left**. On returning, use **Add return / another stay** and set status to **Active**. Keep earlier stays for history. **Archived** means still resident but not joining meals: those members remain selected for shared bills on dates within their stays.
+10. **Attendance** lists saved meals from today backwards. Filter by date, meal, member, and Ate / Not marked. Not marked is not a claim that the person was absent from the house.
+11. In **Users**, administrators search registered accounts and edit names or roles. New accounts start as **user** (read only); **moderator** can manage records; **admin** can also manage accounts. At least one administrator must remain.
 
 ### Existing data
 
-Authenticated record access atomically converts legacy weighted shared expenses into exact Manual shares and removes the old member weight. Original payloads remain in the audit history. Existing food, cooking, and attendance records are read together as one meal without deleting history. Saving an old meal converts any linked personal purchases into ingredient buyer rows, retaining each historical credit date and replacing the old linked credits. Historical shared-expense funding can be kept unchanged or explicitly replaced by the selected buyer.
+Administrator/moderator record access atomically converts legacy weighted shared expenses into exact Manual shares and removes the old member weight. Original payloads remain in the audit history. Existing food, cooking, and attendance records are read together as one meal without deleting history. Saving an old meal converts any linked personal purchases into ingredient buyer rows, retaining each historical credit date and replacing the old linked credits. Historical shared-expense funding can be kept unchanged or explicitly replaced by the selected buyer.
+
+Migration `0003` adds account versioning, role indexes, and valid-role guards. For a legacy workspace with no admin, it preserves access by promoting the earliest existing account to admin; other missing/invalid roles become user. Apply this migration before deploying the new app. On the next writer access, legacy single arrival/departure values become a first stay, and expenses with buyers receive linked **Purchase credit** payment records. Visitors only read a normalized view and never perform this migration. Legacy Left records with unknown departure dates remain intact; an operator must supply the actual departure when next editing that member.
+
+Automatic credits use stable source IDs and are saved in the same atomic batch as their expense. Changing a price or buyer updates the existing payment; removing a buyer, ingredient, meal, or expense archives the corresponding payment. Eater balances are derived again from the remaining meal costs and attendance, rather than adding adjustments on top. Edit the source through **View source** in Payments; automatic payments cannot be edited independently.
 
 ## Filters and exports
 
@@ -121,7 +127,7 @@ Money is stored as integer paisa. Largest-remainder apportionment distributes re
 
 Meal ingredients, attendance, buyers, expenses, payments, and direct splits recalculate the derived ledger. Each meal retains its selected Oil/Gas/Chai rates. Editing resource rates affects new selections only; changing a selected entry snapshots that resource’s current rate. A saved meal’s date and meal type are fixed. Historical closing dates cannot invalidate existing meals: correct the affected meals first.
 
-The application is a single-mess administrator workspace, not a multi-tenant or resident-login service. It loads the mess's active records for flexible client-side analysis. Large multi-year datasets need measured capacity planning and server-side report pagination before scaling substantially.
+The application is a single-mess workspace with public financial views and account roles, not a multi-tenant service. Public and pending-user reads omit member phone numbers and private member notes; account lists and audit history require appropriate roles. It loads the mess's active records for flexible client-side analysis. Large multi-year datasets need measured capacity planning and server-side report pagination before scaling substantially.
 
 ## Integrity and authentication
 
@@ -130,8 +136,9 @@ The application is a single-mess administrator workspace, not a multi-tenant or 
 - A revision guard and atomic D1 batch reject concurrent stale writes. Bulk changes use JSON batches to avoid one database query per attendance row.
 - Passwords are salted and hashed with PBKDF2-SHA-256 via Web Crypto (100,000 iterations). Password policy requires 12–128 characters. Login attempts are limited by account and IP.
 - Session tokens are random, only token hashes are stored, expiry is seven days, and cookies use HttpOnly, SameSite=Strict, and Secure in production. Logout revokes the stored session.
-- Mutations require a same-origin request, a valid session, and Zod validation. Financial data endpoints are not cached.
-- This first version has no email-based password recovery or multi-admin invitation flow. Keep administrator credentials safely; any operator-assisted reset must hash the replacement password and revoke existing sessions.
+- Record mutations require a same-origin request, a current moderator/admin session, and Zod validation. Role checks run on the server and again in the atomic write condition. Account edits require admin and use their own version guard. Financial data endpoints are not cached.
+- Public signup always assigns user, rejects role injection, and is rate limited by IP. Pending users see an approval notice and read-only controls. The client uses a shared permissions policy and access provider; UI visibility is not the security boundary.
+- There is no email verification or email-based password recovery. Administrators approve registered accounts using Users. Keep administrator credentials safely; any operator-assisted reset must hash the replacement password and revoke existing sessions.
 
 ## Checks and source map
 
@@ -141,7 +148,7 @@ npm test
 npm run build
 ```
 
-`src/lib/settlement.ts` contains the independent accounting service; `src/lib/validation.ts` validates cross-record invariants and snapshots rates. `src/app/api` holds authentication and financial endpoints. `src/db/schema.ts` defines the Drizzle schema; `drizzle/` contains the migration and Drizzle metadata. `src/components` contains the responsive UI, forms, table, and chart components.
+`src/lib/permissions.ts` and `access.ts` define the role policy and server guards; `registration-service.ts` and `user-service.ts` handle accounts; `record-service.ts` coordinates atomic domain changes; `payment-service.ts` synchronizes source credits; `stays.ts` owns residence rules. `src/lib/settlement.ts` contains the independent accounting service; `src/lib/validation.ts` validates cross-record invariants and snapshots rates. `src/app/api` holds authentication and financial endpoints. `src/db/schema.ts` defines the Drizzle schema; `drizzle/` contains the migration and Drizzle metadata. `src/components` contains the responsive UI, forms, table, and chart components.
 
 For schema changes, use `npm run db:generate`, review the generated migration, test it locally, then apply remotely. Back up D1 before production schema changes. Financial audit history is not a substitute for database backups.
 

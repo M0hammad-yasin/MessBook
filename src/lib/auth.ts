@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { database } from "./db";
+import { normalizeRole, type SessionUser } from "./permissions";
 import type { UserRole } from "@/db/schema";
 const encoder = new TextEncoder();
 export const hex = (buffer: ArrayBuffer | Uint8Array) =>
@@ -40,12 +41,21 @@ export async function session() {
   const token = (await cookies()).get("messbook_session")?.value;
   if (!token) return null;
   const { raw } = await database();
-  return raw
+  const user = await raw
     .prepare(
       "SELECT users.id, users.name, users.email, users.qaum, users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.hash=? AND sessions.expires>?",
     )
     .bind(await digest(token), Date.now())
-    .first<{ id: string; name: string; email: string; qaum?: string | null; role?: UserRole | null }>();
+    .first<{
+      id: string;
+      name: string;
+      email: string;
+      qaum?: string | null;
+      role?: UserRole | null;
+    }>();
+  return user
+    ? ({ ...user, role: normalizeRole(user.role) } as SessionUser)
+    : null;
 }
 export function checkOrigin(request: Request) {
   const origin = request.headers.get("origin");

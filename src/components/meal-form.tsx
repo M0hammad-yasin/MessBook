@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain";
 import { readMeal, type MealInput } from "@/lib/meal-service";
 import { prepareEntity } from "@/lib/validation";
+import { canJoinMeal } from "@/lib/stays";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -74,12 +75,7 @@ export function MealForm({
   const historic = saved.memberIds.filter(
     (id) => members.find((m) => m.id === id)?.status !== "Active",
   );
-  const eligible = members.filter(
-    (m) =>
-      m.status === "Active" &&
-      m.arrival.slice(0, 10) <= v.date &&
-      (!m.departure || m.departure.slice(0, 10) >= v.date),
-  );
+  const eligible = members.filter((m) => canJoinMeal(m, v.date));
   const fuel = byKind(records, "fuel");
   const oldLog = records.find(
     (r) => r.kind === "cooking" && r.date === v.date && r.meal === v.meal,
