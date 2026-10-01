@@ -1,0 +1,43 @@
+name: Migrate Production D1 Database
+
+# ⚠️  MANUAL TRIGGER ONLY — this workflow mutates the PRODUCTION Cloudflare D1 database.
+# Never added to push or schedule triggers deliberately.
+# Review migration SQL files in drizzle/ before running.
+on:
+  workflow_dispatch:
+
+# Two simultaneous D1 migrations must never race against each other.
+# We do NOT cancel-in-progress: a running migration must complete before the next can start.
+# This is safer than cancelling a half-applied migration.
+concurrency:
+  group: messbook-production-database
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: "⚠️ Apply Drizzle migrations → PRODUCTION D1"
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply Drizzle migrations to production D1
+        # npm run db:remote = wrangler d1 migrations apply messbook --remote
+        # This connects to the live production D1 database (database_id: bc362b7d-...)
+        # It is idempotent: already-applied migrations are skipped.
+        run: npm run db:remote

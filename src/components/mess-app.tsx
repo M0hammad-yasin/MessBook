@@ -72,6 +72,7 @@ import { MealForm } from "./meal-form";
 import { MealsTable } from "./meals-table";
 import { type MealInput } from "@/lib/meal-service";
 import { DataTable, exportCsv } from "./data-table";
+import { AttendanceBoard } from "./attendance";
 import { SpendChart, SplitChart } from "./charts";
 import { MonthlySettlements } from "./monthly-settlements";
 import {
@@ -229,7 +230,9 @@ export default function MessApp() {
   const [auditMore, setAuditMore] = useState(false);
   const [auditDetail, setAuditDetail] = useState<AuditEntry | null>(null);
   const [reportMode, setReportMode] = useState<"Daily" | "Monthly">("Daily");
-  const [attendanceView, setAttendanceView] = useState<"board" | "history">("board");
+  const [attendanceView, setAttendanceView] = useState<"board" | "history">(
+    "board",
+  );
   const records = state.records;
   const members = byKind(records, "member");
   const name = (id: string) =>
