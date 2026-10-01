@@ -8,6 +8,7 @@ import { memberStays } from "@/lib/stays";
 import { AccessProvider, Can } from "./access-context";
 import { AuthScreen } from "./auth-screen";
 import { UsersPage } from "./users-page";
+import { AttendanceBoard } from "./attendance";
 import { AttendanceHistory } from "./attendance-history";
 import { PaymentHistory } from "./payment-history";
 import { RecordDetails } from "./record-details";
@@ -228,6 +229,7 @@ export default function MessApp() {
   const [auditMore, setAuditMore] = useState(false);
   const [auditDetail, setAuditDetail] = useState<AuditEntry | null>(null);
   const [reportMode, setReportMode] = useState<"Daily" | "Monthly">("Daily");
+  const [attendanceView, setAttendanceView] = useState<"board" | "history">("board");
   const records = state.records;
   const members = byKind(records, "member");
   const name = (id: string) =>
@@ -1568,14 +1570,57 @@ export default function MessApp() {
               />
             )}
             {page === "attendance" && (
-              <AttendanceHistory
-                records={records}
-                from={from}
-                to={to}
-                query={query}
-                mealFilter={filter}
-                memberFilter={memberFilter}
-              />
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
+                  <div className="inline-flex rounded-xl border border-stone-200 bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceView("board")}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                        attendanceView === "board"
+                          ? "bg-emerald-800 text-white shadow-sm"
+                          : "text-stone-600 hover:text-stone-900"
+                      }`}
+                    >
+                      Attendance Board
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendanceView("history")}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                        attendanceView === "history"
+                          ? "bg-emerald-800 text-white shadow-sm"
+                          : "text-stone-600 hover:text-stone-900"
+                      }`}
+                    >
+                      Attendance History
+                    </button>
+                  </div>
+                  {attendanceView === "board" && (
+                    <span className="text-xs text-stone-500">
+                      Date: <strong className="text-stone-800">{to}</strong>
+                    </span>
+                  )}
+                </div>
+
+                {attendanceView === "board" ? (
+                  <AttendanceBoard
+                    records={records}
+                    date={to}
+                    save={save}
+                    addCooking={() => setForm({ kind: "cooking" })}
+                  />
+                ) : (
+                  <AttendanceHistory
+                    records={records}
+                    from={from}
+                    to={to}
+                    query={query}
+                    mealFilter={filter}
+                    memberFilter={memberFilter}
+                  />
+                )}
+              </div>
             )}
             {page === "users" && (
               <Can permission="users:manage">
