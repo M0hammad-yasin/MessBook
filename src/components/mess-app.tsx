@@ -72,7 +72,6 @@ import { MealForm } from "./meal-form";
 import { MealsTable } from "./meals-table";
 import { type MealInput } from "@/lib/meal-service";
 import { DataTable, exportCsv } from "./data-table";
-import { AttendanceBoard } from "./attendance";
 import { SpendChart, SplitChart } from "./charts";
 import { MonthlySettlements } from "./monthly-settlements";
 import {

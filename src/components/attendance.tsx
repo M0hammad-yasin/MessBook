@@ -14,53 +14,9 @@ import {
   Utensils,
   CheckCheck,
 } from "lucide-react";
-
-import { useState, useMemo } from "react";
-import {
-  Check,
-  Save,
-  Users,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  ArrowUpDown,
-  Utensils,
-  CheckCheck,
-} from "lucide-react";
 import { byKind, meals, type Entity, type Meal } from "@/lib/domain";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-
-// Chronological meals: ["Breakfast", "Lunch", "Dinner"]
-// Latest meal first order: Dinner (latest) -> Lunch -> Breakfast (earliest)
-const MEALS_LATEST_FIRST: Meal[] = ["Dinner", "Lunch", "Breakfast"];
-
-const MEAL_DETAILS: Record<
-  Meal,
-  { label: string; badge: string; timeDesc: string; orderRank: number }
-> = {
-  Dinner: {
-    label: "Dinner",
-    badge: "Latest",
-    timeDesc: "Evening / Night",
-    orderRank: 3,
-  },
-  Lunch: {
-    label: "Lunch",
-    badge: "Midday",
-    timeDesc: "Afternoon",
-    orderRank: 2,
-  },
-  Breakfast: {
-    label: "Breakfast",
-    badge: "Morning",
-    timeDesc: "Morning",
-    orderRank: 1,
-  },
-};
-
 
 // Chronological meals: ["Breakfast", "Lunch", "Dinner"]
 // Latest meal first order: Dinner (latest) -> Lunch -> Breakfast (earliest)
@@ -417,9 +373,6 @@ export function AttendanceBoard({
 
         {/* Table Column Headers (Latest meal at first: Dinner -> Lunch -> Breakfast) */}
         <div className="attendance-grid bg-stone-50/90 border-b border-stone-100 px-4 py-3 text-xs font-semibold text-stone-600">
-
-        {/* Table Column Headers (Latest meal at first: Dinner -> Lunch -> Breakfast) */}
-        <div className="attendance-grid bg-stone-50/90 border-b border-stone-100 px-4 py-3 text-xs font-semibold text-stone-600">
           <span>MEMBER</span>
           {MEALS_LATEST_FIRST.map((meal) => {
             const meta = MEAL_DETAILS[meal];
@@ -753,17 +706,11 @@ export function AttendanceBoard({
 
       {/* Cooking Log Prompt */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-5">
-
-      {/* Cooking Log Prompt */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-5">
         <div>
-          <h3 className="font-semibold text-emerald-950">
-            Used oil, gas, or chai today?
           <h3 className="font-semibold text-emerald-950">
             Used oil, gas, or chai today?
           </h3>
           <p className="mt-1 text-sm text-emerald-800">
-            Link purchase records used for cooked meals on {date}.
             Link purchase records used for cooked meals on {date}.
           </p>
         </div>
