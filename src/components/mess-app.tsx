@@ -62,6 +62,7 @@ import { MealsTable } from "./meals-table";
 import { buildMealChanges, type MealInput } from "@/lib/meal-service";
 import { buildExpenseChanges } from "@/lib/expense-service";
 import { DataTable, exportCsv } from "./data-table";
+import { AttendanceBoard } from "./attendance";
 import { SpendChart, SplitChart } from "./charts";
 import { MonthlySettlements } from "./monthly-settlements";
 import {
@@ -79,6 +80,7 @@ const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "members", label: "Members", icon: Users },
   { id: "food", label: "Meals", icon: Utensils },
+  { id: "attendance", label: "Attendance", icon: CalendarCheck },
   { id: "fuel", label: "Oil, gas & chai", icon: Flame },
   { id: "shared", label: "Shared expenses", icon: Receipt },
   { id: "payments", label: "Payments & credit", icon: Wallet },
@@ -1540,6 +1542,14 @@ export default function MessApp() {
                 />
               </section>
             )}
+          {page === "attendance" && (
+            <AttendanceBoard
+              records={records}
+              date={to}
+              save={save}
+              addCooking={() => setForm({ kind: "cooking" })}
+            />
+          )}
           {page === "settlements" && (
             <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-3">

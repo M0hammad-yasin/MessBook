@@ -1,50 +1,92 @@
-# Messbook
+# MessBook — Mess Management Platform
 
-A responsive mess-management application for PKR accounting. Includes members, attendance, meal expenses, cooking logs, independent oil/gas purchases, shared expenses, payments, personal purchases, settlements, resident statements, daily/monthly reports, and an audit trail.
+![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=nextdotjs)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+![Cloudflare Workers](https://img.shields.io/badge/Cloudflare_Workers-orange?style=flat-square&logo=cloudflare&logoColor=white)
+![Cloudflare D1](https://img.shields.io/badge/D1_Database-F38020?style=flat-square&logo=cloudflare&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Web%20%7C%20Mobile_Optimised-4CAF50?style=flat-square)
+
+**A PKR mess-management platform for Marcha House — handling members, attendance, meal costing, shared expenses, payments, fuel, settlements, resident statements, daily/monthly reports, and a full audit trail.**
+
+[Get Started](#start-locally) • [Deploy](#deploy-to-cloudflare-workers) • [CI/CD](#cicd--github-actions) • [Daily Use](#daily-use) • [Accounting](#accounting-decisions) • [Security](#integrity-and-authentication) • [Tests](#checks-and-source-map)
+
+---
+
+## Table of Contents
+
+- [Stack](#stack)
+- [Start Locally](#start-locally)
+- [Deploy to Cloudflare Workers](#deploy-to-cloudflare-workers)
+- [CI/CD & GitHub Actions](#cicd--github-actions)
+- [Daily Use](#daily-use)
+  - [Existing Data](#existing-data)
+- [Filters and Exports](#filters-and-exports)
+- [Accounting Decisions](#accounting-decisions)
+- [Integrity and Authentication](#integrity-and-authentication)
+- [Checks and Source Map](#checks-and-source-map)
+- [Feature Verification](#feature-verification)
+
+---
 
 ## Stack
 
-- Next.js App Router and TypeScript
-- Tailwind CSS v4, shadcn/ui-style Radix primitives, Lucide React
-- React Hook Form and Zod
-- TanStack Table and Recharts
-- Next.js Route Handlers and a TypeScript business layer
-- Cloudflare D1, Drizzle ORM, Drizzle Kit
-- OpenNext adapter for Cloudflare Workers
-- Custom database-backed cookie sessions
-- GitHub verification and manual deployment workflows
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 15 App Router + TypeScript |
+| UI | Tailwind CSS v4, Radix UI primitives, Lucide React |
+| Forms | React Hook Form + Zod |
+| Tables / Charts | TanStack Table, Recharts |
+| Backend | Next.js Route Handlers + TypeScript business layer |
+| Database | Cloudflare D1, Drizzle ORM, Drizzle Kit |
+| Hosting | OpenNext adapter → Cloudflare Workers |
+| Auth | Custom database-backed cookie sessions (PBKDF2-SHA-256) |
+| CI/CD | GitHub Actions (ci, deploy-production, migrate-production, security) |
 
-## Start locally
+---
 
-Use Node.js 22 or newer. From this directory:
+## Start Locally
+
+Requires **Node.js 22+**. From the repository root:
 
 ```sh
 npm ci
 cp .dev.vars.example .dev.vars
 ```
 
-Set `SETUP_TOKEN` in `.dev.vars` to a long random value. Never commit that file. Generate a value with:
+Set `SETUP_TOKEN` in `.dev.vars` to a long random string — never commit this file. Generate one with:
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Then initialise the local D1 database and start the dev server:
+
+```sh
 npm run db:local
 npm run dev
 ```
 
-In PowerShell, use `Copy-Item .dev.vars.example .dev.vars` instead of `cp` if preferred. Open `http://localhost:3000`. Choose **Set up your mess**, enter the private setup token, your name, email, and a password of at least 12 characters. Setup can create only the first administrator. All subsequent visits use the sign-in form.
+> **PowerShell users:** use `Copy-Item .dev.vars.example .dev.vars` instead of `cp`.
 
-`http://localhost:3000/?demo=1` opens a clearly labeled demonstration. Sample records are generated in memory. Demo changes are never written to D1 and disappear on reload. The live workspace starts empty.
+Open `http://localhost:3000`. Choose **Set up your mess**, enter the setup token, your name, email, and a password of at least 12 characters. Only the first administrator can be created via setup. All subsequent visits use the sign-in form.
+
+`http://localhost:3000/?demo=1` opens a clearly labelled demonstration. Sample records are generated in memory; demo changes are never written to D1 and disappear on reload.
+
+---
 
 ## Deploy to Cloudflare Workers
 
-The project is configured without paid service dependencies, R2, external authentication, or a remote SQL server. Your own Cloudflare account and D1 database are still required. Free-plan suitability depends on actual usage and Worker CPU limits; monitor your deployment rather than assuming unlimited capacity.
+The project requires no paid service dependencies, R2, external authentication, or a remote SQL server — only a Cloudflare account and a D1 database.
 
 ```sh
 npx wrangler login
 npx wrangler d1 create messbook
 ```
 
-Copy the returned D1 database ID into `wrangler.jsonc`, replacing `REPLACE_WITH_D1_DATABASE_ID`. Keep the binding name `DB`. If you rename the Worker, update both `name` and the `WORKER_SELF_REFERENCE` service name.
+Copy the returned D1 database ID into `wrangler.jsonc`, replacing `REPLACE_WITH_D1_DATABASE_ID`. Keep the binding name `DB`.
 
 ```sh
 npm run db:remote
@@ -52,99 +94,155 @@ npx wrangler secret put SETUP_TOKEN
 npm run deploy
 ```
 
-Supply a unique production setup token when prompted, open the deployed URL, and create your administrator. Remove the setup token after successful setup with `npx wrangler secret delete SETUP_TOKEN`. The database also prevents a second setup independently of that secret.
-
-For a production-runtime local check, run `npm run preview`. Production cookies require HTTPS; the normal `npm run dev` flow is recommended for local sign-in testing.
-
-Documentation: [OpenNext setup](https://opennext.js.org/cloudflare/get-started), [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
-
-## GitHub
-
-Push this project directory as the repository root. Do not push the parent workspace. The lockfile and D1 migrations belong in source control; credentials, local data, dependency folders, and build outputs are ignored.
+Supply a unique production setup token when prompted, open the deployed URL, and create your administrator. After successful setup:
 
 ```sh
-git remote add origin https://github.com/YOUR-ACCOUNT/YOUR-REPOSITORY.git
-git push -u origin main
+npx wrangler secret delete SETUP_TOKEN
 ```
 
-The verification workflow runs type checks, accounting tests, and the Next.js production build. The deployment workflow is manual (`workflow_dispatch`) and uses a GitHub environment named `production`. Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository/environment secrets. The token needs access to this Worker's deployment and this D1 database. Configure the runtime `SETUP_TOKEN` with Wrangler before first setup.
+The database prevents a second setup independently of that secret. For a production-runtime local check, run `npm run preview`.
 
-No GitHub remote or Cloudflare account is embedded in the source.
+**Reference docs:**
+- [OpenNext Cloudflare setup](https://opennext.js.org/cloudflare/get-started)
+- [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+- [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)
 
-## Daily use
+---
 
-1. Add members, their arrival/departure dates, and opening credit. Shared expenses use Equal, Manual, or Excluded allocation; there is no member unit field.
-2. Open **Meals** and choose **Add meal**. Choose the date and Breakfast, Lunch, or Dinner. If that meal already exists, its items and attendance load for editing; a second meal for the same date and time is rejected.
-3. Add ingredient rows with an item name, PKR price, and buyer. Use **Add another item** for each purchase. Choose **Mess fund** if paid from mess cash. Each member buyer receives credit automatically; do not enter another payment for that purchase.
-4. Select the active members who ate, optionally choose Oil/Gas/Chai entries used, and save once. The total and average update as you type. Saving replaces the meal's charges and buyer credits. Add, edit, or remove items later in the same meal. Historical inactive eaters remain available separately when editing old meals.
-5. In **Oil, gas & chai**, record each purchase and its buyer. Choose a direct split or average rates per meal. Average rates are saved when a resource is selected in a meal. Applying a rate never credits its buyer again.
-6. Add shared expenses with their buyer and Equal, Manual, or Excluded allocation. Record deposits, refunds, and reimbursements on **Payments & credit**. Automatic purchase credits appear there and in member statements; edit the original expense to change them.
-7. Review settlements and select a member to open their statement. Positive balances mean the member owes the mess; negative balances mean the mess owes the member.
-8. Close average resource entries with an end date and review over/undercharges. No automatic reconciliation adjustment is posted. Use a documented refund, reimbursement, or correction when needed.
-9. When someone leaves, set their departure and status to **Left**. Retain the member record for financial history.
+## CI/CD & GitHub Actions
 
-### Existing data
+Four workflows with clearly separated responsibilities:
 
-Authenticated record access atomically converts legacy weighted shared expenses into exact Manual shares and removes the old member weight. Original payloads remain in the audit history. Existing food, cooking, and attendance records are read together as one meal without deleting history. Saving an old meal converts any linked personal purchases into ingredient buyer rows, retaining each historical credit date and replacing the old linked credits. Historical shared-expense funding can be kept unchanged or explicitly replaced by the selected buyer.
+| Workflow | Trigger | Purpose | Production secrets |
+|---|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | Push (non-`main`) + PR → `main` | typecheck → test → build | ❌ Never |
+| [`deploy-production.yml`](.github/workflows/deploy-production.yml) | Push to `main` + manual | verify → deploy Worker | ✅ Deploy job only |
+| [`migrate-production.yml`](.github/workflows/migrate-production.yml) | **Manual only** | Apply Drizzle D1 migrations | ✅ Yes |
+| [`security.yml`](.github/workflows/security.yml) | PR → `main` + weekly Monday | `npm audit --audit-level=high` | ❌ Never |
 
-## Filters and exports
+### One-time GitHub setup
 
-- Date presets: today, this month, last month, all time, and custom dates.
-- Search plus module-specific meal, status, category, resource, tier, payment type, method, and member filters. Meals also filter by eater/buyer role, resource used, missing attendance, and funding source; search includes ingredient and member names.
-- Sortable and paginated tables; CSV exports include all rows matching current filters, not only the visible page.
-- Settlements are cumulative through the selected end date; the start date narrows statement transactions. Changing the period never discards earlier balances.
-- Member listing includes all arrival dates; its date range changes the displayed as-of balance.
-- Statements support category filters while retaining the complete ledger's running balance.
-- Fuel reconciliation always uses the full history of each entry. Purchase-date filters control which entries are listed.
-- Reports distinguish average and direct fuel charges, food by meal, shared categories, and payment types. A meal-type filter affects meal costs, not unrelated payments/shared costs.
+1. **Secrets** (Settings → Secrets → Actions):
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_ACCOUNT_ID`
+2. **Environment** named `production` (Settings → Environments). Optionally add required reviewers.
+3. **Branch protection** on `main` — require the `Typecheck, Test & Build` status check before merge.
+
+### Everyday developer workflow
+
+```
+git checkout -b feature/my-feature
+# code → commit → push
+```
+→ `ci.yml` runs (typecheck + test + build)
+→ open PR → `ci.yml` + `security.yml` run
+→ merge to `main` → `deploy-production.yml` auto-deploys ✅
+
+**Schema changes:**
+```
+npm run db:generate   # review drizzle/<migration>.sql
+npm run db:local      # test locally
+# merge to main → auto Worker deploy
+# GitHub Actions → "Migrate Production D1 Database" → Run workflow
+```
+
+---
+
+## Daily Use
+
+1. Add members, arrival/departure dates, and opening credit. Shared expenses use Equal, Manual, or Excluded allocation.
+2. Open **Meals** → **Add meal**. Choose the date and Breakfast, Lunch, or Dinner. Editing an existing meal loads its items and attendance.
+3. Add ingredient rows with item name, PKR price, and buyer. Member buyers receive automatic credit — no separate payment entry needed.
+4. Select active members who ate, choose Oil/Gas/Chai entries used, and save once. Saving replaces the meal's charges and buyer credits.
+5. In **Oil, gas & chai**, record each purchase and its buyer. Choose a direct split or average rates per meal.
+6. Add shared expenses with buyer and allocation type. Record deposits, refunds, and reimbursements in **Payments & credit**.
+7. Review settlements; select a member for their full statement. Positive balance = member owes the mess; negative = mess owes the member.
+8. Close average resource entries with an end date and review over/undercharges. Use documented refunds or corrections as needed.
+9. When someone leaves, set their departure and status to **Left**. Retain the record for financial history.
+
+### Existing Data
+
+Authenticated record access atomically converts legacy weighted shared expenses into exact Manual shares and removes old member weights. Original payloads remain in the audit history. Existing food, cooking, and attendance records are read together as one meal without deleting history.
+
+---
+
+## Filters and Exports
+
+- **Date presets:** today, this month, last month, all time, and custom dates.
+- **Search + filters** per module: meal, status, category, resource, tier, payment type, method, and member. Meals also filter by eater/buyer role, resource used, missing attendance, and funding source.
+- **Sortable, paginated tables**; CSV exports include all rows matching current filters, not just the visible page.
+- Settlements are cumulative through the selected end date. Changing the period never discards earlier balances.
 - Audit events are stored in UTC; business dates use Pakistan time. Load older activity to search beyond the first 200 events.
 
-## Accounting decisions
+---
 
-The supplied specification contains a contradictory formula in its first section. This implementation follows the detailed ledger rules and section 5:
+## Accounting Decisions
 
-```text
+The supplied specification contains a contradictory formula. This implementation follows the detailed ledger rules (section 5):
+
+```
 Net due = food charges
         + applied average-tier oil/gas/chai
         + direct oil/gas/chai purchase splits
         + allocated shared expenses
-        - opening credit
-        - deposits
-        - member-paid purchases (automatic or legacy credit)
+        − opening credit
+        − deposits
+        − member-paid purchases (automatic or legacy credit)
         + refunds
         + reimbursements
 ```
 
-Direct fuel purchases are derived once as distinct dated ledger charges. They are never subtracted from what a member owes and never enter the meal-cost engine. Editing the purchase recalculates its single set of charges instead of duplicating postings.
+Money is stored as **integer paisa**. Largest-remainder apportionment distributes residual paisa deterministically by member ID, preserving the exact original amount. Displayed average cost per eater is informational; individual shares may differ by one paisa.
 
-Money is stored as integer paisa. Largest-remainder apportionment distributes residual paisa deterministically by member ID, preserving the exact original amount. Displayed average cost per eater is informational; actual individual shares may differ by one paisa.
+---
 
-Meal ingredients, attendance, buyers, expenses, payments, and direct splits recalculate the derived ledger. Each meal retains its selected Oil/Gas/Chai rates. Editing resource rates affects new selections only; changing a selected entry snapshots that resource’s current rate. A saved meal’s date and meal type are fixed. Historical closing dates cannot invalidate existing meals: correct the affected meals first.
+## Integrity and Authentication
 
-The application is a single-mess administrator workspace, not a multi-tenant or resident-login service. It loads the mess's active records for flexible client-side analysis. Large multi-year datasets need measured capacity planning and server-side report pagination before scaling substantially.
-
-## Integrity and authentication
-
-- Server-side validation prevents duplicate attendance/cooking logs, invalid references, invalid dates, out-of-stay attendance, zero-weight allocations, and non-reconciling manual allocations.
-- Archived financial records remain in D1 and all financial edits record actor, timestamp, before, and after values.
-- A revision guard and atomic D1 batch reject concurrent stale writes. Bulk changes use JSON batches to avoid one database query per attendance row.
-- Passwords are salted and hashed with PBKDF2-SHA-256 via Web Crypto (100,000 iterations). Password policy requires 12–128 characters. Login attempts are limited by account and IP.
-- Session tokens are random, only token hashes are stored, expiry is seven days, and cookies use HttpOnly, SameSite=Strict, and Secure in production. Logout revokes the stored session.
+- Server-side Zod validation prevents duplicate logs, invalid references, invalid dates, out-of-stay attendance, zero-weight allocations, and non-reconciling manual allocations.
+- All financial edits record actor, timestamp, before value, and after value.
+- A **revision guard + atomic D1 batch** rejects concurrent stale writes.
+- Passwords are hashed with **PBKDF2-SHA-256** (100,000 iterations, Web Crypto API). Policy: 12–128 characters. Login attempts are rate-limited by account and IP.
+- Session tokens are random; only token hashes are stored. Expiry: 7 days. Cookies: `HttpOnly`, `SameSite=Strict`, `Secure` in production. Logout revokes the stored session.
 - Mutations require a same-origin request, a valid session, and Zod validation. Financial data endpoints are not cached.
-- This first version has no email-based password recovery or multi-admin invitation flow. Keep administrator credentials safely; any operator-assisted reset must hash the replacement password and revoke existing sessions.
 
-## Checks and source map
+> ⚠️ No email-based password recovery exists in v1. Keep administrator credentials safely. Any operator-assisted reset must hash the replacement password and revoke existing sessions.
+
+---
+
+## Checks and Source Map
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+npm run typecheck   # TypeScript strict check
+npm test            # accounting unit tests
+npm run build       # Next.js production build
 ```
 
-`src/lib/settlement.ts` contains the independent accounting service; `src/lib/validation.ts` validates cross-record invariants and snapshots rates. `src/app/api` holds authentication and financial endpoints. `src/db/schema.ts` defines the Drizzle schema; `drizzle/` contains the migration and Drizzle metadata. `src/components` contains the responsive UI, forms, table, and chart components.
+| Path | Purpose |
+|---|---|
+| `src/lib/settlement.ts` | Independent accounting service |
+| `src/lib/validation.ts` | Cross-record invariants + rate snapshots |
+| `src/app/api/` | Auth and financial Route Handlers |
+| `src/db/schema.ts` | Drizzle schema |
+| `drizzle/` | Migrations and Drizzle metadata |
+| `src/components/` | Responsive UI, forms, tables, charts |
+| `.github/workflows/` | CI, deploy, migrate, security workflows |
 
-For schema changes, use `npm run db:generate`, review the generated migration, test it locally, then apply remotely. Back up D1 before production schema changes. Financial audit history is not a substitute for database backups.
+For schema changes: `npm run db:generate` → review migration → test locally → apply remotely. **Back up D1 before any production schema change.** The audit trail is not a substitute for database backups.
 
-## Feature verification
+---
 
-Run `npm test` and `npm run typecheck`. `npm run build:worker` verifies the Cloudflare bundle. The optional local integration suite is `node --import tsx tests/api-integration.mts` with `npm run dev` running on port 3000. It requires Node 24, an empty local D1 database, and `.dev.vars`; it refuses an existing administrator workspace and removes its own test records and account afterward. It never targets a remote database.
+## Feature Verification
+
+```sh
+npm test
+npm run typecheck
+npm run build:worker   # verifies the Cloudflare bundle
+```
+
+The optional local integration suite:
+
+```sh
+node --import tsx tests/api-integration.mts
+```
+
+Requires Node 24, an empty local D1 database, and `.dev.vars`. It refuses an existing administrator workspace and removes its own test records and account afterward. It never targets a remote database.
