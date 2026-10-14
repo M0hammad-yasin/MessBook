@@ -330,3 +330,53 @@ test("generic record writes cannot bypass the combined meal editor", () => {
   );
   assert.throws(() => buildExpenseChanges([], ["egg"], first), /meal editor/);
 });
+
+test("a manual oil/gas charge overrides the average and is deducted from the chosen purchase", () => {
+  const oil: Fuel = {
+    ...chai,
+    id: "oil",
+    resource: "Oil",
+    amount: 200000,
+    paidBy: "omar",
+    breakfast: 8000,
+    notes: "Oil tin",
+  };
+  const base = [...members, oil];
+  // Blank override -> average rate (80.00).
+  const avg = save({ ...input(), oilId: "oil" }, base);
+  assert.equal(calculate(avg).fuelCharged.oil, 8000);
+  // Manual override (150.00) replaces the average for this meal only.
+  const high = save({ ...input(), oilId: "oil", oilRate: 15000 }, base);
+  assert.equal(calculate(high).fuelCharged.oil, 15000);
+  assert.equal(readMeal(high, date, "Breakfast").oilRate, 15000);
+  // A second meal draws further against the same purchase.
+  const second = save(
+    {
+      ...input(),
+      meal: "Lunch",
+      items: [{ id: "dal", description: "Dal", amount: 10000, paidBy: "ali" }],
+      oilId: "oil",
+      oilRate: 2500,
+    },
+    high,
+  );
+  assert.equal(calculate(second).fuelCharged.oil, 17500);
+  // Zero is a valid manual charge.
+  assert.equal(
+    calculate(save({ ...input(), oilId: "oil", oilRate: 0 }, base)).fuelCharged
+      .oil || 0,
+    0,
+  );
+  // Editing the meal without sending a rate keeps the stored manual charge.
+  const edited = save(
+    { ...readMeal(high, date, "Breakfast"), oilRate: undefined },
+    high,
+  );
+  assert.equal(calculate(edited).fuelCharged.oil, 15000);
+  // Rates are ignored for unused resources and rejected when invalid.
+  assert.equal(
+    calculate(save({ ...input(), gasRate: 9999 }, base)).fuelCharged.gas,
+    undefined,
+  );
+  assert.throws(() => save({ ...input(), oilId: "oil", oilRate: -1 }, base));
+});

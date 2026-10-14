@@ -25,6 +25,10 @@ export const mealInputSchema = keySchema.extend({
   oilId: z.string().max(100),
   gasId: z.string().max(100),
   chaiId: z.string().max(100),
+  // Optional manual charge for this meal, in paisa. Omitted = use the entry's average rate.
+  oilRate: z.number().int().min(0).max(1_000_000_000).optional(),
+  gasRate: z.number().int().min(0).max(1_000_000_000).optional(),
+  chaiRate: z.number().int().min(0).max(1_000_000_000).optional(),
 });
 export type MealInput = z.infer<typeof mealInputSchema>;
 export const isMealRecord = (
@@ -92,6 +96,9 @@ export function readMeal(
     oilId: log?.oilId || "",
     gasId: log?.gasId || "",
     chaiId: log?.chaiId || "",
+    ...(log?.oilId ? { oilRate: log.oilRate } : {}),
+    ...(log?.gasId ? { gasRate: log.gasRate } : {}),
+    ...(log?.chaiId ? { chaiRate: log.chaiRate ?? 0 } : {}),
   };
 }
 
@@ -165,6 +172,17 @@ export function buildMealChanges(
       chaiRate: 0,
     },
     records,
+    {
+      ...(value.oilId && value.oilRate !== undefined
+        ? { oil: value.oilRate }
+        : {}),
+      ...(value.gasId && value.gasRate !== undefined
+        ? { gas: value.gasRate }
+        : {}),
+      ...(value.chaiId && value.chaiRate !== undefined
+        ? { chai: value.chaiRate }
+        : {}),
+    },
   );
   const oldItems = readMeal(records, value.date, value.meal).items;
   const upsert: Entity[] = [

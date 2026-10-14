@@ -132,7 +132,17 @@ export const entitySchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export function prepareEntity(input: unknown, records: Entity[]): Entity {
+export type RateOverrides = Partial<Record<"oil" | "gas" | "chai", number>>;
+
+/**
+ * `overrides` lets the meal editor set a manual per-meal charge (integer paisa)
+ * for a resource instead of the selected entry's average rate.
+ */
+export function prepareEntity(
+  input: unknown,
+  records: Entity[],
+  overrides: RateOverrides = {},
+): Entity {
   const entity = entitySchema.parse(input) as Entity;
   const previous = records.find((r) => r.id === entity.id);
   if (previous && previous.kind !== entity.kind)
@@ -175,9 +185,19 @@ export function prepareEntity(input: unknown, records: Entity[]): Entity {
         old.date === entity.date;
       if (!sameLog && entry.end)
         throw new Error(`Choose an open ${resource} entry`);
-      entity[rate] = sameLog
-        ? old[rate] || 0
-        : entry[entity.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"];
+      const manual = overrides[resource];
+      if (
+        manual !== undefined &&
+        (!Number.isSafeInteger(manual) || manual < 0 || manual > 1_000_000_000)
+      )
+        throw new Error(`Enter a valid ${resource} charge`);
+      entity[rate] =
+        manual ??
+        (sameLog
+          ? old[rate] || 0
+          : entry[
+              entity.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"
+            ]);
     }
   }
   return entity;

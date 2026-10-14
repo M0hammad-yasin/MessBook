@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { Plus, Trash2, Users, Loader2, Utensils } from "lucide-react";
 import {
@@ -11,7 +11,8 @@ import {
   type Meal,
 } from "@/lib/domain";
 import { readMeal, type MealInput } from "@/lib/meal-service";
-import { prepareEntity } from "@/lib/validation";
+import { prepareEntity, type RateOverrides } from "@/lib/validation";
+import { calculate } from "@/lib/settlement";
 import { canJoinMeal } from "@/lib/stays";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -22,7 +23,12 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 
-type Values = Omit<MealInput, "items"> & {
+const resources = ["oil", "gas", "chai"] as const;
+// Manual charges are edited in PKR as text; "" means "use the average rate".
+type Values = Omit<MealInput, "items" | "oilRate" | "gasRate" | "chaiRate"> & {
+  oilRate: string;
+  gasRate: string;
+  chaiRate: string;
   items: {
     id: string;
     description: string;
@@ -39,8 +45,12 @@ const newItem = (paidBy = "") => ({
 });
 function initial(records: Entity[], date: string, meal: Meal): Values {
   const saved = readMeal(records, date, meal);
+  const rate = (n?: number) => (n === undefined ? "" : String(n / 100));
   return {
     ...saved,
+    oilRate: rate(saved.oilRate),
+    gasRate: rate(saved.gasRate),
+    chaiRate: rate(saved.chaiRate),
     items: saved.items.length
       ? saved.items.map((r) => ({ ...r, amount: String(r.amount / 100) }))
       : [newItem()],
@@ -82,6 +92,30 @@ export function MealForm({
   );
   let rates = { oil: 0, gas: 0, chai: 0 };
   let rateError = "";
+  const overrides: RateOverrides = {};
+  for (const r of resources) {
+    const raw = v[`${r}Rate`];
+    if (v[`${r}Id`] && raw !== undefined && raw.trim() !== "")
+      overrides[r] = Math.round(Number(raw) * 100);
+  }
+  // How much of each purchase is still unallocated, ignoring this meal's saved charge.
+  const charged = useMemo(() => calculate(records).fuelCharged, [records]);
+  const averageFor = (id: string) => {
+    const f = fuel.find((x) => x.id === id);
+    return f ? f[v.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"] : 0;
+  };
+  const remainingFor = (id: string) => {
+    const f = fuel.find((x) => x.id === id);
+    if (!f) return 0;
+    const own =
+      oldLog?.kind === "cooking"
+        ? (["oil", "gas", "chai"] as const).reduce(
+            (n, r) => (oldLog[`${r}Id`] === id ? n + (oldLog[`${r}Rate`] || 0) : n),
+            0,
+          )
+        : 0;
+    return f.amount - ((charged[id] || 0) - own);
+  };
   try {
     const log = prepareEntity(
       {
@@ -97,6 +131,7 @@ export function MealForm({
         chaiRate: 0,
       },
       records,
+      overrides,
     );
     if (log.kind === "cooking")
       rates = { oil: log.oilRate, gas: log.gasRate, chai: log.chaiRate || 0 };
@@ -120,8 +155,13 @@ export function MealForm({
     setSaving(true);
     setError("");
     try {
+      const manual = (id: string, raw: string) =>
+        id && raw.trim() !== "" ? Math.round(Number(raw) * 100) : undefined;
       await onSave({
         ...values,
+        oilRate: manual(values.oilId, values.oilRate),
+        gasRate: manual(values.gasId, values.gasRate),
+        chaiRate: manual(values.chaiId, values.chaiRate),
         remove,
         items: remove
           ? []
@@ -370,47 +410,77 @@ export function MealForm({
                 </span>
               </summary>
               <p className="mt-2 text-xs text-stone-500">
-                Choose resources used for this meal. Saved rates are split among
-                the selected eaters.
+                Choose the purchase each resource is taken from. The average
+                rate is suggested; type this meal&apos;s actual charge to
+                override it. The charge is deducted from the chosen purchase.
               </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                {(["oil", "gas", "chai"] as const).map((resource) => (
-                  <label key={resource} className="field">
-                    <span>{resource[0].toUpperCase() + resource.slice(1)}</span>
-                    <select
-                      aria-label={`${resource[0].toUpperCase() + resource.slice(1)} entry`}
-                      className="control"
-                      {...form.register(`${resource}Id`)}
-                    >
-                      <option value="">Not used</option>
-                      {fuel
-                        .filter(
-                          (f) =>
-                            f.resource.toLowerCase() === resource &&
-                            f.tier === "average" &&
-                            ((!f.end && f.effective <= v.date) ||
-                              f.id === saved[`${resource}Id`]),
-                        )
-                        .map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.date} ·{" "}
-                            {pkr(
-                              f.id === saved[`${resource}Id`] &&
-                                oldLog?.kind === "cooking"
-                                ? oldLog[`${resource}Rate`] || 0
-                                : f[
-                                    v.meal.toLowerCase() as
-                                      | "breakfast"
-                                      | "lunch"
-                                      | "dinner"
-                                  ],
-                            )}
-                            {f.notes ? ` · ${f.notes}` : ""}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                ))}
+              <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                {resources.map((resource) => {
+                  const label = resource[0].toUpperCase() + resource.slice(1);
+                  const idKey = `${resource}Id` as const;
+                  const rateKey = `${resource}Rate` as const;
+                  const select = form.register(idKey);
+                  const picked = v[idKey];
+                  const effective = rates[resource];
+                  const remaining = picked ? remainingFor(picked) : 0;
+                  return (
+                    <div key={resource} className="space-y-2">
+                      <label className="field">
+                        <span>{label}</span>
+                        <select
+                          aria-label={`${label} entry`}
+                          className="control"
+                          {...select}
+                          onChange={(e) => {
+                            select.onChange(e);
+                            // A different purchase starts again from its own average.
+                            form.setValue(rateKey, "");
+                          }}
+                        >
+                          <option value="">Not used</option>
+                          {fuel
+                            .filter(
+                              (f) =>
+                                f.resource.toLowerCase() === resource &&
+                                f.tier === "average" &&
+                                ((!f.end && f.effective <= v.date) ||
+                                  f.id === saved[idKey]),
+                            )
+                            .map((f) => (
+                              <option key={f.id} value={f.id}>
+                                {f.date} · {pkr(f.amount)} · left{" "}
+                                {pkr(remainingFor(f.id))}
+                                {f.notes ? ` · ${f.notes}` : ""}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      {picked && (
+                        <label className="field">
+                          <span>{label} charge for this meal (PKR)</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            aria-label={`${label} charge`}
+                            placeholder={String(averageFor(picked) / 100)}
+                            {...form.register(rateKey)}
+                          />
+                          <small>
+                            Average {pkr(averageFor(picked))}. Leave blank to
+                            use it.
+                          </small>
+                          {effective > remaining && (
+                            <small className="text-amber-700">
+                              Exceeds the {pkr(Math.max(remaining, 0))} left on
+                              this purchase; it will show as overcharged.
+                            </small>
+                          )}
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               {rateError && (
                 <p role="alert" className="mt-2 text-sm text-red-700">
