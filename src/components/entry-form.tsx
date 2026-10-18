@@ -34,6 +34,7 @@ export const kindLabels: Record<Kind, string> = {
   shared: "Shared expense",
   payment: "Payment",
   purchase: "Personal purchase",
+  settlement: "Settlement",
 };
 type FormValues = Record<string, string>;
 const inputSchema = z.record(z.string(), z.string());

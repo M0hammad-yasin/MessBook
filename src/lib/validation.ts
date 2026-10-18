@@ -130,6 +130,16 @@ export const entitySchema = z.discriminatedUnion("kind", [
     appliedTo: z.enum(["General credit", "Meal expense", "Shared expense"]),
     expenseId: z.string().max(100),
   }),
+  z.object({
+    id,
+    kind: z.literal("settlement"),
+    date,
+    memberId: id,
+    mode: z.enum(["cash", "forgive_due", "waive_credit"]),
+    receiverId: z.string().max(100).optional(),
+    amount: money.positive(),
+    notes: note,
+  }),
 ]);
 
 export type RateOverrides = Partial<Record<"oil" | "gas" | "chai", number>>;
@@ -226,6 +236,19 @@ export function validateState(records: Entity[]) {
     if ("paidBy" in e && e.paidBy) checkMember(e.paidBy);
     if ("memberId" in e) checkMember(e.memberId);
     if ("memberIds" in e) e.memberIds.forEach(checkMember);
+    if (e.kind === "settlement") {
+      if (e.mode === "cash") {
+        if (!e.receiverId) throw new Error("Choose who received the cash");
+        if (e.receiverId === e.memberId)
+          throw new Error("A member cannot give cash to themselves");
+        checkMember(e.receiverId);
+      } else {
+        if (e.receiverId)
+          throw new Error("Only cash settlements have a receiver");
+        if (!e.notes.trim())
+          throw new Error("Give a reason for settling this balance");
+      }
+    }
     if (e.kind === "member") validateStays(e);
     if (e.kind === "attendance" || e.kind === "cooking") {
       const key = `${e.kind}|${e.date}|${e.meal}|${e.kind === "attendance" ? e.memberId : ""}`;

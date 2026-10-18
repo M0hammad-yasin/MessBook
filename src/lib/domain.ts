@@ -99,6 +99,23 @@ export type Purchase = {
   appliedTo: "General credit" | "Meal expense" | "Shared expense";
   expenseId: string;
 };
+/**
+ * A settlement closes out (part of) a member's balance and is kept as history.
+ * - cash: `memberId` handed `amount` in cash to `receiverId`. The giver's balance
+ *   falls by `amount`; the receiver, now holding mess cash, rises by `amount`.
+ * - forgive_due: the mess forgives `amount` that `memberId` owes.
+ * - waive_credit: `memberId` gives up `amount` of credit the mess owes them.
+ */
+export type Settlement = {
+  id: string;
+  kind: "settlement";
+  date: string;
+  memberId: string;
+  mode: "cash" | "forgive_due" | "waive_credit";
+  receiverId?: string;
+  amount: number;
+  notes: string;
+};
 export type Entity =
   | Member
   | Attendance
@@ -107,7 +124,8 @@ export type Entity =
   | Cooking
   | Shared
   | Payment
-  | Purchase;
+  | Purchase
+  | Settlement;
 export type Kind = Entity["kind"];
 export type State = { records: Entity[]; revision: number };
 export type LedgerLine = {
@@ -122,7 +140,8 @@ export type LedgerLine = {
     | "Chai"
     | "Shared"
     | "Payment"
-    | "Purchase";
+    | "Purchase"
+    | "Settlement";
   description: string;
   debit: number;
   credit: number;

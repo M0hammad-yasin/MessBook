@@ -204,6 +204,35 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       e.amount,
     ),
   );
+  const nameOf = new Map(members.map((m) => [m.id, m.name]));
+  byKind(records, "settlement").forEach((e) => {
+    const why = e.notes ? ` · ${e.notes}` : "";
+    if (e.mode === "cash") {
+      // Money moves between two members: one account falls, the other rises.
+      add(
+        `${e.id}-from`,
+        e.memberId,
+        e.date,
+        "Payment",
+        `Paid cash to ${nameOf.get(e.receiverId || "") || "member"}${why}`,
+        0,
+        e.amount,
+      );
+      if (e.receiverId)
+        add(
+          `${e.id}-to`,
+          e.receiverId,
+          e.date,
+          "Payment",
+          `Received cash from ${nameOf.get(e.memberId) || "member"}${why}`,
+          e.amount,
+          0,
+        );
+    } else if (e.mode === "forgive_due")
+      add(e.id, e.memberId, e.date, "Settlement", `Due settled${why}`, 0, e.amount);
+    else
+      add(e.id, e.memberId, e.date, "Settlement", `Credit waived${why}`, e.amount, 0);
+  });
   const creditedSources = new Set(
     byKind(records, "payment")
       .filter((p) => p.type === "Purchase credit")
@@ -258,10 +287,13 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       shared: own
         .filter((l) => l.category === "Shared")
         .reduce((n, l) => n + l.debit, 0),
-      credit: own.reduce(
-        (n, l) => n + l.credit - (l.category === "Payment" ? l.debit : 0),
-        0,
-      ),
+      // Forgiven or waived amounts are not money the member contributed.
+      credit: own
+        .filter((l) => l.category !== "Settlement")
+        .reduce(
+          (n, l) => n + l.credit - (l.category === "Payment" ? l.debit : 0),
+          0,
+        ),
       balance: balances[m.id] || 0,
     };
   });

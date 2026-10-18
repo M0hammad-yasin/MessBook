@@ -12,6 +12,7 @@ import type {
   Payment,
   Purchase,
   Attendance,
+  Settlement,
 } from "../src/lib/domain";
 const date = "2026-09-01";
 const member = (id: string): Member => ({
@@ -328,4 +329,96 @@ test("each ledger closing balance equals settlement and signs are consistent", (
 });
 test("demo data satisfies real integrity rules", () => {
   validateState(demoRecords());
+});
+
+// "a" owes 5000 (a shared bill), "b" has 10000 credit, "c" is even.
+const ledger = (): Entity[] => [
+  member("a"),
+  { ...member("b"), openingCredit: 10000 },
+  member("c"),
+  {
+    id: "bill",
+    kind: "shared",
+    date,
+    category: "Electricity",
+    description: "Bill",
+    amount: 5000,
+    method: "Equal",
+    memberIds: ["a"],
+    manual: {},
+  },
+];
+const settle = (over: Partial<Settlement>): Settlement => ({
+  id: "s1",
+  kind: "settlement",
+  date,
+  memberId: "a",
+  mode: "cash",
+  receiverId: "b",
+  amount: 3000,
+  notes: "",
+  ...over,
+});
+const balanceOf = (rs: Entity[], id: string) =>
+  calculate(rs).settlements.find((m) => m.id === id)!.balance;
+
+test("cash given to another member lowers the giver's due and the receiver's account", () => {
+  const records = [...ledger(), settle({})];
+  validateState(records);
+  assert.equal(balanceOf(records, "a"), 5000 - 3000);
+  // Receiver was in credit: credit shrinks. The mess total is unchanged.
+  assert.equal(balanceOf(records, "b"), -10000 + 3000);
+  assert.equal(
+    ["a", "b", "c"].reduce((n, id) => n + balanceOf(records, id), 0),
+    balanceOf(ledger(), "a") + balanceOf(ledger(), "b"),
+  );
+  // Receiver with no credit goes into due by the cash they now hold.
+  const toC = [...ledger(), settle({ receiverId: "c" })];
+  assert.equal(balanceOf(toC, "c"), 3000);
+  // Both sides appear in the ledger with who paid whom.
+  const lines = calculate(records).lines;
+  assert.match(
+    lines.find((l) => l.id === "s1-from")!.description,
+    /Paid cash to Member b/,
+  );
+  assert.match(
+    lines.find((l) => l.id === "s1-to")!.description,
+    /Received cash from Member a/,
+  );
+});
+
+test("settled amounts bring balances to zero and stay in history", () => {
+  const due = [
+    ...ledger(),
+    settle({ mode: "forgive_due", receiverId: undefined, amount: 5000, notes: "Guest house" }),
+  ];
+  assert.equal(balanceOf(due, "a"), 0);
+  assert.equal(balanceOf(due, "b"), -10000); // others are not affected
+  const line = calculate(due).lines.find((l) => l.id === "s1")!;
+  assert.match(line.description, /Due settled · Guest house/);
+  const credit = [
+    ...ledger(),
+    settle({ memberId: "b", mode: "waive_credit", receiverId: undefined, amount: 10000, notes: "No refund needed" }),
+  ];
+  assert.equal(balanceOf(credit, "b"), 0);
+  // Forgiven amounts are not counted as money the member contributed.
+  assert.equal(
+    calculate(due).settlements.find((m) => m.id === "a")!.credit,
+    0,
+  );
+  // Archiving the record restores the original balance.
+  assert.equal(balanceOf(due.filter((r) => r.id !== "s1"), "a"), 5000);
+});
+
+test("settlement validation", () => {
+  const bad = (s: Settlement) => () => validateState([...ledger(), s]);
+  assert.throws(bad(settle({ receiverId: undefined })), /who received/);
+  assert.throws(bad(settle({ receiverId: "a" })), /themselves/);
+  assert.throws(bad(settle({ receiverId: "ghost" })), /no longer exists/);
+  assert.throws(
+    bad(settle({ mode: "forgive_due", receiverId: undefined, notes: " " })),
+    /reason/,
+  );
+  assert.throws(bad(settle({ mode: "forgive_due", notes: "x" })), /receiver/);
+  assert.throws(() => prepareEntity(settle({ amount: 0 }), ledger()));
 });

@@ -37,7 +37,9 @@ export function RecordDetails({
               ? `${record.name} · stays`
               : record.kind === "payment"
                 ? "Payment details"
-                : "Expense details"}
+                : record.kind === "settlement"
+                  ? "Settlement details"
+                  : "Expense details"}
         </DialogTitle>
         <DialogDescription className="mt-2 text-sm text-stone-500">
           Saved workspace record

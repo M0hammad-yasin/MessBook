@@ -68,6 +68,7 @@ import {
   DialogDescription,
 } from "./ui/dialog";
 import { EntryForm, kindLabels } from "./entry-form";
+import { SettleDialog, type SettleMember } from "./settle-dialog";
 import { MealForm } from "./meal-form";
 import { MealsTable } from "./meals-table";
 import { type MealInput } from "@/lib/meal-service";
@@ -220,6 +221,7 @@ export default function MessApp() {
     null,
   );
   const [quick, setQuick] = useState(false);
+  const [settleFor, setSettleFor] = useState<SettleMember | null>(null);
   const [archive, setArchive] = useState<Entity | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [statementId, setStatementId] = useState<string | null>(null);
@@ -422,14 +424,16 @@ export default function MessApp() {
       </Button>
     ) : (
       <div className="flex gap-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={`Edit ${kindLabels[entity.kind]}`}
-          onClick={() => setForm({ kind: entity.kind, entity })}
-        >
-          <Pencil size={14} />
-        </Button>
+        {entity.kind !== "settlement" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Edit ${kindLabels[entity.kind]}`}
+            onClick={() => setForm({ kind: entity.kind, entity })}
+          >
+            <Pencil size={14} />
+          </Button>
+        )}
         {entity.kind !== "member" && (
           <Button
             size="sm"
@@ -485,6 +489,21 @@ export default function MessApp() {
       accessorKey: "balance",
       header: "Net balance",
       cell: ({ getValue }) => <Balance value={Number(getValue())} />,
+    },
+    {
+      id: "settle",
+      header: "",
+      cell: ({ row }) =>
+        writable && row.original.balance !== 0 ? (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`Settle ${row.original.name}`}
+            onClick={() => setSettleFor(row.original)}
+          >
+            Settle
+          </Button>
+        ) : null,
     },
     {
       id: "view",
@@ -561,6 +580,7 @@ export default function MessApp() {
       "Reimbursement",
       "Personal purchase",
       "Purchase credit",
+      "Settlement",
     ],
     settlements: ["Owes mess", "In credit", "Settled"],
     reports: [...meals],
@@ -585,7 +605,8 @@ export default function MessApp() {
     if (
       memberFilter !== "All" &&
       ("memberId" in r
-        ? r.memberId !== memberFilter
+        ? r.memberId !== memberFilter &&
+          !(r.kind === "settlement" && r.receiverId === memberFilter)
         : "memberIds" in r
           ? !r.memberIds.includes(memberFilter) &&
             !("paidBy" in r && r.paidBy === memberFilter)
@@ -600,6 +621,7 @@ export default function MessApp() {
       if (r.kind === "shared" && r.category !== filter) return false;
       if (r.kind === "payment" && r.type !== filter) return false;
       if (r.kind === "purchase" && filter !== "Personal purchase") return false;
+      if (r.kind === "settlement" && filter !== "Settlement") return false;
     }
     if (secondary !== "All") {
       if (
@@ -617,6 +639,11 @@ export default function MessApp() {
       )
         return false;
       if (r.kind === "purchase" && page === "payments") return false;
+      if (
+        r.kind === "settlement" &&
+        (r.mode !== "cash" || secondary !== "Cash")
+      )
+        return false;
     }
     return true;
   });
@@ -1571,6 +1598,51 @@ export default function MessApp() {
                 onSource={openEntity}
               />
             )}
+            {page === "payments" &&
+              records.some((r) => r.kind === "settlement") && (
+                <div className="mt-8 space-y-3">
+                  <h3 className="text-base font-semibold">
+                    Settlement history
+                  </h3>
+                  {entityTable("settlement", [
+                    dateColumn,
+                    {
+                      id: "member",
+                      header: "Member",
+                      accessorFn: (r) =>
+                        r.kind === "settlement" ? name(r.memberId) : "",
+                    },
+                    {
+                      id: "type",
+                      header: "Type",
+                      accessorFn: (r) =>
+                        r.kind !== "settlement"
+                          ? ""
+                          : r.mode === "cash"
+                            ? "Paid cash"
+                            : r.mode === "forgive_due"
+                              ? "Due settled"
+                              : "Credit waived",
+                    },
+                    {
+                      id: "receiver",
+                      header: "Cash given to",
+                      accessorFn: (r) =>
+                        r.kind === "settlement" && r.receiverId
+                          ? name(r.receiverId)
+                          : "—",
+                    },
+                    amountColumn,
+                    {
+                      id: "notes",
+                      header: "Notes",
+                      accessorFn: (r) =>
+                        r.kind === "settlement" ? r.notes : "",
+                    },
+                    actionsColumn,
+                  ])}
+                </div>
+              )}
             {page === "attendance" && (
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
@@ -1748,6 +1820,15 @@ export default function MessApp() {
             <Check size={16} />
             {notice}
           </div>
+        )}
+        {writable && settleFor && (
+          <SettleDialog
+            key={settleFor.id}
+            member={settleFor}
+            members={asOf.settlements}
+            onClose={() => setSettleFor(null)}
+            onSave={(entity) => save([entity])}
+          />
         )}
         {writable &&
           form &&
