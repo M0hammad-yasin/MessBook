@@ -47,6 +47,7 @@ export function calculate(records: Entity[], through = "9999-12-31") {
     description: string,
     debit = 0,
     credit = 0,
+    meal?: LedgerLine["meal"],
   ) => {
     if (date <= through)
       lines.push({
@@ -58,6 +59,7 @@ export function calculate(records: Entity[], through = "9999-12-31") {
         debit,
         credit,
         balance: 0,
+        ...(meal ? { meal } : {}),
       });
   };
   members.forEach((m) => {
@@ -133,6 +135,8 @@ export function calculate(records: Entity[], through = "9999-12-31") {
           category,
           `${meal} · ${category === "Food" ? "meal expenses" : category + " cooking rate"}`,
           shares[id],
+          0,
+          meal,
         );
       if (fuelId) fuelCharged[fuelId] = (fuelCharged[fuelId] || 0) + value;
     }

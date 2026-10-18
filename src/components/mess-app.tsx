@@ -69,6 +69,7 @@ import {
 } from "./ui/dialog";
 import { EntryForm, kindLabels } from "./entry-form";
 import { SettleDialog, type SettleMember } from "./settle-dialog";
+import { MemberProfile } from "./member-profile";
 import { MealForm } from "./meal-form";
 import { MealsTable } from "./meals-table";
 import { type MealInput } from "@/lib/meal-service";
@@ -222,6 +223,7 @@ export default function MessApp() {
   );
   const [quick, setQuick] = useState(false);
   const [settleFor, setSettleFor] = useState<SettleMember | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [archive, setArchive] = useState<Entity | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [statementId, setStatementId] = useState<string | null>(null);
@@ -382,6 +384,7 @@ export default function MessApp() {
       setTo(today());
     }
     setPage(next);
+    setProfileId(null);
     setQuery("");
     setFilter("All");
     setSecondary("All");
@@ -413,6 +416,7 @@ export default function MessApp() {
       setAuditBusy(false);
     }
   }
+  const openProfile = (id: string) => setProfileId(id);
   const openStatement = (id: string) => {
     setStatementId(id);
     setStatementCategory("All");
@@ -452,8 +456,9 @@ export default function MessApp() {
       header: "Member",
       cell: ({ row }) => (
         <button
-          onClick={() => openStatement(row.original.id)}
+          onClick={() => openProfile(row.original.id)}
           className="flex items-center gap-3 text-left"
+          aria-label={`Open ${row.original.name} profile`}
         >
           <Avatar name={row.original.name} index={row.index} />
           <span>
@@ -760,6 +765,9 @@ export default function MessApp() {
   const activeFuel = byKind(records, "fuel").filter(
     (f) => f.tier === "average" && !f.end,
   );
+  const profile = profileId
+    ? (result.settlements.find((m) => m.id === profileId) ?? null)
+    : null;
   const statement = statementId
     ? asOf.settlements.find((m) => m.id === statementId)
     : null;
@@ -934,6 +942,19 @@ export default function MessApp() {
                 </button>
               </div>
             )}
+            {profile && (
+              <MemberProfile
+                key={profile.id}
+                member={profile}
+                records={records}
+                lines={result.lines}
+                writable={writable}
+                onBack={() => setProfileId(null)}
+                onSettle={() => setSettleFor(profile)}
+                onStatement={() => openStatement(profile.id)}
+              />
+            )}
+            <div hidden={!!profile}>
             <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="mb-2 flex items-center gap-2 text-xs text-stone-500">
@@ -998,6 +1019,7 @@ export default function MessApp() {
                 </div>
               )}
             </div>
+            </div>
             {error && (
               <div
                 role="alert"
@@ -1017,6 +1039,7 @@ export default function MessApp() {
                 </Button>
               </div>
             )}
+            <div hidden={!!profile}>
             {page !== "users" && (
               <div className="filter-bar">
                 <>
@@ -1404,7 +1427,8 @@ export default function MessApp() {
                     return (
                       <button
                         className="flex items-center gap-3 text-left"
-                        onClick={() => openStatement(m.id)}
+                        onClick={() => openProfile(m.id)}
+                        aria-label={`Open ${m.name} profile`}
                       >
                         <Avatar name={m.name} index={row.index} />
                         <span>
@@ -1810,6 +1834,7 @@ export default function MessApp() {
               <span>messbook · Made for a well-run mess</span>
               <span>All amounts in PKR · Dates in Pakistan time</span>
             </footer>
+            </div>
           </main>
         </div>
         {notice && (

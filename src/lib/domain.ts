@@ -146,6 +146,8 @@ export type LedgerLine = {
   debit: number;
   credit: number;
   balance: number;
+  /** Set on charges that come from a specific meal. */
+  meal?: Meal;
 };
 export type MealSummary = {
   date: string;
