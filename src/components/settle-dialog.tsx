@@ -37,11 +37,10 @@ export function SettleDialog({
   onClose: () => void;
   onSave: (entity: Entity) => Promise<unknown>;
 }) {
-  // A member in credit can only waive it; cash is for settling a due.
   const owes = member.balance > 0;
-  const [mode, setMode] = useState<"cash" | "settled">(owes ? "cash" : "settled");
+  const [mode, setMode] = useState<"cash" | "settled">("cash");
   const [amount, setAmount] = useState(String(Math.abs(member.balance) / 100));
-  const [receiverId, setReceiverId] = useState("");
+  const [counterpartyId, setCounterpartyId] = useState("");
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -49,12 +48,25 @@ export function SettleDialog({
 
   const paisa = Math.round(Number(amount) * 100);
   const valid = Number.isFinite(paisa) && paisa > 0;
-  const receiver = members.find((m) => m.id === receiverId);
+  const counterparty = members.find((m) => m.id === counterpartyId);
   const others = members.filter(
     (m) => m.id !== member.id && m.status !== "Archived",
   );
   const settleMode = owes ? "forgive_due" : "waive_credit";
   const memberAfter = owes ? member.balance - paisa : member.balance + paisa;
+  const counterpartyAfter = counterparty
+    ? owes
+      ? counterparty.balance + paisa
+      : counterparty.balance - paisa
+    : 0;
+
+  const modalTitle = owes
+    ? `Settle ${member.name}`
+    : mode === "settled"
+      ? "Credit waived"
+      : counterparty
+        ? `Received from ${counterparty.name}`
+        : "Received from [Member Name]";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -65,17 +77,25 @@ export function SettleDialog({
         throw new Error(
           `You can settle at most ${pkr(Math.abs(member.balance))}, which is the current balance`,
         );
-      if (mode === "cash" && !receiverId)
-        throw new Error("Choose who received the cash");
+      if (mode === "cash" && !counterpartyId)
+        throw new Error(
+          owes ? "Choose who received the cash" : "Choose who gave the cash",
+        );
       if (mode === "settled" && !notes.trim())
-        throw new Error("Give a reason for settling this balance");
+        throw new Error(
+          owes
+            ? "Give a reason for settling this balance"
+            : "Give a reason for waiving this credit",
+        );
       const entity = entitySchema.parse({
         id: crypto.randomUUID(),
         kind: "settlement",
         date,
-        memberId: member.id,
+        memberId: owes || mode !== "cash" ? member.id : counterpartyId,
         mode: mode === "cash" ? "cash" : settleMode,
-        ...(mode === "cash" ? { receiverId } : {}),
+        ...(mode === "cash"
+          ? { receiverId: owes ? counterpartyId : member.id }
+          : {}),
         amount: paisa,
         notes: notes.trim(),
       }) as Entity;
@@ -98,47 +118,52 @@ export function SettleDialog({
     >
       <DialogContent>
         <DialogTitle className="pr-8 text-xl font-semibold">
-          Settle {member.name}
+          {modalTitle}
         </DialogTitle>
         <DialogDescription className="mt-1 text-sm text-stone-500">
           {member.name} currently {describe(member.balance)}. Everything you
           record here stays in the history.
         </DialogDescription>
         <form className="mt-6 space-y-5" onSubmit={submit}>
-          {owes && (
-            <div
-              role="radiogroup"
-              aria-label="Settlement type"
-              className="grid grid-cols-2 gap-2"
-            >
-              {(
-                [
-                  ["cash", "Paid cash"],
-                  ["settled", "Settled (forgive)"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === value}
-                  onClick={() => setMode(value)}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium ${
-                    mode === value
-                      ? "border-emerald-700 bg-emerald-50 text-emerald-900"
-                      : "border-stone-200 bg-white text-stone-600"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
+          <div
+            role="radiogroup"
+            aria-label="Settlement type"
+            className="grid grid-cols-2 gap-2"
+          >
+            {(
+              owes
+                ? ([
+                    ["cash", "Paid cash"],
+                    ["settled", "Settled (forgive)"],
+                  ] as const)
+                : ([
+                    ["cash", "Cash received"],
+                    ["settled", "Given to mess / Credit waived"],
+                  ] as const)
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={mode === value}
+                onClick={() => setMode(value)}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium ${
+                  mode === value
+                    ? "border-emerald-700 bg-emerald-50 text-emerald-900"
+                    : "border-stone-200 bg-white text-stone-600"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="field">
               <span>
                 {mode === "cash"
-                  ? `Cash given by ${member.name} (PKR)`
+                  ? owes
+                    ? `Cash given by ${member.name} (PKR)`
+                    : "Cash received (PKR)"
                   : owes
                     ? "Amount to forgive (PKR)"
                     : "Credit to waive (PKR)"}
@@ -158,14 +183,15 @@ export function SettleDialog({
             {mode === "cash" && (
               <label className="field">
                 <span>
-                  Given to <span className="text-emerald-700">*</span>
+                  {owes ? "Given to" : "Received from"}{" "}
+                  <span className="text-emerald-700">*</span>
                 </span>
                 <select
                   className="control"
                   required
-                  aria-label="Cash received by"
-                  value={receiverId}
-                  onChange={(e) => setReceiverId(e.target.value)}
+                  aria-label={owes ? "Cash received by" : "Cash received from"}
+                  value={counterpartyId}
+                  onChange={(e) => setCounterpartyId(e.target.value)}
                 >
                   <option value="">Select member…</option>
                   {others.map((m) => (
@@ -197,7 +223,11 @@ export function SettleDialog({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={
-                  mode === "settled" ? "e.g. Guest house, no need to settle" : ""
+                  mode === "settled"
+                    ? owes
+                      ? "e.g. Guest house, no need to settle"
+                      : "e.g. Forgiven by member, no refund needed"
+                    : ""
                 }
               />
             </label>
@@ -208,11 +238,12 @@ export function SettleDialog({
                 <strong>{member.name}</strong>: {describe(member.balance)} →{" "}
                 {describe(memberAfter)}
               </p>
-              {mode === "cash" && receiver && (
+              {mode === "cash" && counterparty && (
                 <p className="mt-1">
-                  <strong>{receiver.name}</strong>: {describe(receiver.balance)}{" "}
-                  → {describe(receiver.balance + paisa)} (now holds this cash for
-                  the mess)
+                  <strong>{counterparty.name}</strong>:{" "}
+                  {describe(counterparty.balance)} →{" "}
+                  {describe(counterpartyAfter)}
+                  {owes && " (now holds this cash for the mess)"}
                 </p>
               )}
             </div>
@@ -226,7 +257,12 @@ export function SettleDialog({
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={saving}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>

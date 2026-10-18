@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { byKind, type Entity, type Cooking, type Fuel } from "./domain";
+import { byKind, pkr, type Entity, type Cooking, type Fuel } from "./domain";
+import { calculate } from "./settlement";
 import { memberStays, isResidentOn, validateStays } from "./stays";
 const id = z.string().min(1).max(160);
 export const date = z
@@ -164,6 +165,29 @@ export function prepareEntity(
     validateStays(entity, true);
     entity.arrival = entity.stays[0].arrival;
     entity.departure = entity.stays.at(-1)!.departure;
+  }
+  if (entity.kind === "settlement") {
+    if (entity.mode === "waive_credit") {
+      const balance =
+        calculate(records).settlements.find((m) => m.id === entity.memberId)
+          ?.balance ?? 0;
+      const credit = balance < 0 ? -balance : 0;
+      if (entity.amount > credit) {
+        throw new Error(
+          `Credit waiver cannot exceed available credit of ${pkr(credit)}`,
+        );
+      }
+    } else if (entity.mode === "forgive_due") {
+      const balance =
+        calculate(records).settlements.find((m) => m.id === entity.memberId)
+          ?.balance ?? 0;
+      const due = balance > 0 ? balance : 0;
+      if (entity.amount > due) {
+        throw new Error(
+          `Due settlement cannot exceed member due of ${pkr(due)}`,
+        );
+      }
+    }
   }
   if (entity.kind === "cooking") {
     const old = previous as Cooking | undefined;

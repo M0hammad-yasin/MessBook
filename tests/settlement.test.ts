@@ -420,5 +420,126 @@ test("settlement validation", () => {
     /reason/,
   );
   assert.throws(bad(settle({ mode: "forgive_due", notes: "x" })), /receiver/);
+  assert.throws(
+    bad(settle({ mode: "waive_credit", receiverId: undefined, notes: " " })),
+    /reason/,
+  );
+  assert.throws(bad(settle({ mode: "waive_credit", receiverId: "a", notes: "x" })), /receiver/);
   assert.throws(() => prepareEntity(settle({ amount: 0 }), ledger()));
+  assert.throws(() => prepareEntity(settle({ amount: -100 }), ledger()));
+
+  // Excessive waiver amount rejected: member "b" has 10000 credit
+  assert.throws(
+    () =>
+      prepareEntity(
+        settle({
+          memberId: "b",
+          mode: "waive_credit",
+          receiverId: undefined,
+          amount: 10001,
+          notes: "Excessive",
+        }),
+        ledger(),
+      ),
+    /Credit waiver cannot exceed available credit/,
+  );
+  // Excessive forgiveness amount rejected: member "a" owes 5000
+  assert.throws(
+    () =>
+      prepareEntity(
+        settle({
+          memberId: "a",
+          mode: "forgive_due",
+          receiverId: undefined,
+          amount: 5001,
+          notes: "Excessive",
+        }),
+        ledger(),
+      ),
+    /Due settlement cannot exceed member due/,
+  );
+});
+
+test("member in credit receives cash from a member in due", () => {
+  // Member "b" has 10,000 credit (balance -10000). Member "a" owes 5,000 (balance +5000).
+  // "a" gives 3,000 cash to "b".
+  const cashReceived: Settlement = {
+    id: "s-credit-cash",
+    kind: "settlement",
+    date,
+    memberId: "a", // Giver
+    receiverId: "b", // Recipient in credit
+    mode: "cash",
+    amount: 3000,
+    notes: "Cash to settle credit",
+  };
+  const records = [...ledger(), cashReceived];
+  validateState(records);
+
+  // Recipient's credit decreases by the received amount (-10000 + 3000 = -7000)
+  assert.equal(balanceOf(records, "b"), -7000);
+  // Giver's due decreases by the same amount (5000 - 3000 = 2000)
+  assert.equal(balanceOf(records, "a"), 2000);
+  // Combined balances remain unchanged (-10000 + 5000 = -5000) === (-7000 + 2000 = -5000)
+  const initialSum = ["a", "b", "c"].reduce((n, id) => n + balanceOf(ledger(), id), 0);
+  const newSum = ["a", "b", "c"].reduce((n, id) => n + balanceOf(records, id), 0);
+  assert.equal(newSum, initialSum);
+
+  // Settlement history & ledger lines correctly identify giver and recipient
+  const lines = calculate(records).lines;
+  const fromLine = lines.find((l) => l.id === "s-credit-cash-from")!;
+  const toLine = lines.find((l) => l.id === "s-credit-cash-to")!;
+  assert.equal(fromLine.memberId, "a");
+  assert.match(fromLine.description, /Paid cash to Member b · Cash to settle credit/);
+  assert.equal(toLine.memberId, "b");
+  assert.match(toLine.description, /Received cash from Member a · Cash to settle credit/);
+});
+
+test("member in credit receives cash from another member who is also in credit", () => {
+  // Member "b" has 10,000 credit. Member "d" has 5,000 credit.
+  const memberD: Member = { ...member("d"), openingCredit: 5000 };
+  const recordsWithD = [...ledger(), memberD];
+  const cashTransfer: Settlement = {
+    id: "s-credit-to-credit",
+    kind: "settlement",
+    date,
+    memberId: "d",
+    receiverId: "b",
+    mode: "cash",
+    amount: 3000,
+    notes: "",
+  };
+  const records = [...recordsWithD, cashTransfer];
+  validateState(records);
+
+  // Giver's credit increases from 5,000 to 8,000 (-5000 - 3000 = -8000)
+  assert.equal(balanceOf(records, "d"), -8000);
+  // Recipient's credit decreases from 10,000 to 7,000 (-10000 + 3000 = -7000)
+  assert.equal(balanceOf(records, "b"), -7000);
+  // Combined balances remain unchanged
+  const initialSum = ["a", "b", "c", "d"].reduce((n, id) => n + balanceOf(recordsWithD, id), 0);
+  const newSum = ["a", "b", "c", "d"].reduce((n, id) => n + balanceOf(records, id), 0);
+  assert.equal(newSum, initialSum);
+});
+
+test("credit waiver reduces credit without a cash transfer", () => {
+  const waive: Settlement = {
+    id: "s-waive",
+    kind: "settlement",
+    date,
+    memberId: "b",
+    mode: "waive_credit",
+    amount: 3000,
+    notes: "Waived part of credit",
+  };
+  const records = [...ledger(), waive];
+  validateState(records);
+  assert.equal(balanceOf(records, "b"), -7000);
+  // Others unaffected
+  assert.equal(balanceOf(records, "a"), 5000);
+  assert.equal(balanceOf(records, "c"), 0);
+
+  const lines = calculate(records).lines;
+  const line = lines.find((l) => l.id === "s-waive")!;
+  assert.match(line.description, /Credit waived · Waived part of credit/);
 });

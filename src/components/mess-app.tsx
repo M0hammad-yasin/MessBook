@@ -1483,6 +1483,25 @@ export default function MessApp() {
                     />
                   ),
                 },
+                {
+                  id: "settle",
+                  header: "",
+                  cell: ({ row }) => {
+                    const sm = asOf.settlements.find(
+                      (m) => m.id === row.original.id,
+                    );
+                    return writable && sm && sm.balance !== 0 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Settle ${sm.name}`}
+                        onClick={() => setSettleFor(sm)}
+                      >
+                        Settle
+                      </Button>
+                    ) : null;
+                  },
+                },
                 actionsColumn,
               ])}
             {page === "food" && (
@@ -1632,7 +1651,7 @@ export default function MessApp() {
                     dateColumn,
                     {
                       id: "member",
-                      header: "Member",
+                      header: "Cash giver / Member",
                       accessorFn: (r) =>
                         r.kind === "settlement" ? name(r.memberId) : "",
                     },
