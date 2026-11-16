@@ -77,20 +77,46 @@ export function calculate(records: Entity[], through = "9999-12-31") {
   const food = byKind(records, "food"),
     cooking = byKind(records, "cooking"),
     attendance = byKind(records, "attendance");
-  const keys = new Set(
-    [...food, ...cooking, ...attendance].map((x) => `${x.date}|${x.meal}`),
-  );
+  // For repeating meal types (Chai), each cooking log forms its own slot.
+  // Use date|meal for non-repeating meals and date|meal|cookingId for repeating ones.
+  const slotKeys = new Set<string>();
+  for (const x of [...food, ...cooking, ...attendance]) {
+    if (x.meal === "Chai" && x.kind === "cooking") {
+      slotKeys.add(`${x.date}|${x.meal}|${x.id}`);
+    } else if (x.meal === "Chai") {
+      // Food/attendance for Chai sessions are prefixed with the cooking log id.
+      // Extract the slot from the id prefix (format: "<cookingId>:<originalId>").
+      const slotId = x.id.includes(":") ? x.id.split(":")[0] : null;
+      if (slotId) slotKeys.add(`${x.date}|${x.meal}|${slotId}`);
+    } else {
+      slotKeys.add(`${x.date}|${x.meal}`);
+    }
+  }
   const fuelCharged: Record<string, number> = {};
-  for (const key of [...keys].sort()) {
-    const [date, meal] = key.split("|") as [string, MealSummary["meal"]];
+  for (const key of [...slotKeys].sort()) {
+    const parts = key.split("|") as string[];
+    const [date, meal, chaiSlotId] = parts as [
+      string,
+      MealSummary["meal"],
+      string | undefined,
+    ];
     if (date > through) continue;
-    const match = (r: { date: string; meal: string }) =>
-      r.date === date && r.meal === meal;
+    const match = (r: { date: string; meal: string; id: string; kind?: string }) =>
+      r.date === date &&
+      r.meal === meal &&
+      (meal !== "Chai" ||
+        !chaiSlotId ||
+        (r.kind === "cooking"
+          ? r.id === chaiSlotId
+          : r.id.startsWith(chaiSlotId + ":")));
     const eaters = [
       ...new Set(attendance.filter(match).map((a) => a.memberId)),
     ].sort();
     const amount = food.filter(match).reduce((n, e) => n + e.amount, 0);
-    const log = cooking.find(match);
+    const log =
+      meal === "Chai" && chaiSlotId
+        ? cooking.find((c) => c.id === chaiSlotId)
+        : cooking.find((c) => c.date === date && c.meal === meal);
     const oil = log?.oilRate || 0;
     const gas = log?.gasRate || 0;
     const chai = log?.chaiRate || 0;
@@ -107,7 +133,10 @@ export function calculate(records: Entity[], through = "9999-12-31") {
       perEater: eaters.length ? total / eaters.length : 0,
       oilId: log?.oilId || "",
       gasId: log?.gasId || "",
-      chaiId: log?.chaiId || "",
+      chaiId:
+        meal === "Chai"
+          ? chaiSlotId || log?.id || ""
+          : log?.chaiId || "",
     });
     if (!eaters.length) {
       if (total)

@@ -380,3 +380,97 @@ test("a manual oil/gas charge overrides the average and is deducted from the cho
   );
   assert.throws(() => save({ ...input(), oilId: "oil", oilRate: -1 }, base));
 });
+
+test("multiple chai sessions can be registered in a single day, edited independently, and archived independently", () => {
+  // Session 1: Morning Chai
+  const morningInput: MealInput = {
+    date,
+    meal: "Chai",
+    items: [{ id: "tea-leaf", description: "Doodh Patti", amount: 15000, paidBy: "ali" }],
+    memberIds: ["ali", "yasin"],
+    oilId: "",
+    gasId: "",
+    chaiId: "",
+  };
+  const withMorning = save(morningInput, members);
+  const morningCooking = withMorning.find((r) => r.kind === "cooking" && r.meal === "Chai");
+  assert.ok(morningCooking, "Morning chai cooking log exists");
+
+  // Session 2: Evening Chai on the same date
+  const eveningInput: MealInput = {
+    date,
+    meal: "Chai",
+    items: [{ id: "green-tea", description: "Green Tea & Biscuits", amount: 20000, paidBy: "yasin" }],
+    memberIds: ["ali", "omar"],
+    oilId: "",
+    gasId: "",
+    chaiId: "",
+  };
+  const withBoth = save(eveningInput, withMorning);
+  const chaiCookings = withBoth.filter((r) => r.kind === "cooking" && r.meal === "Chai");
+  assert.equal(chaiCookings.length, 2, "Two distinct chai sessions exist on the same date");
+
+  // Validate state integrity with two chai sessions on the same day
+  validateState(withBoth);
+
+  // Read each session independently
+  const readMorning = readMeal(withBoth, date, "Chai", morningCooking.id);
+  assert.equal(readMorning.items.length, 1);
+  assert.equal(readMorning.items[0].description, "Doodh Patti");
+  assert.deepEqual(readMorning.memberIds.sort(), ["ali", "yasin"]);
+
+  const eveningCooking = chaiCookings.find((c) => c.id !== morningCooking.id)!;
+  const readEvening = readMeal(withBoth, date, "Chai", eveningCooking.id);
+  assert.equal(readEvening.items.length, 1);
+  assert.equal(readEvening.items[0].description, "Green Tea & Biscuits");
+  assert.deepEqual(readEvening.memberIds.sort(), ["ali", "omar"]);
+
+  // Calculate settlements:
+  // Morning: 15000 / 2 = 7500 each for ali & yasin. ali gets 15000 credit.
+  // Evening: 20000 / 2 = 10000 each for ali & omar. yasin gets 20000 credit.
+  // Ali: food = 7500 + 10000 = 17500 debit, 15000 credit -> balance = +2500 (owes 2500)
+  // Yasin: food = 7500 debit, 20000 credit -> balance = -12500 (credited 12500)
+  // Omar: food = 10000 debit, 0 credit -> balance = +10000 (owes 10000)
+  const calc = calculate(withBoth);
+  const b = calc.settlements;
+  assert.equal(b.find((s) => s.id === "ali")?.balance, 2500);
+  assert.equal(b.find((s) => s.id === "yasin")?.balance, -12500);
+  assert.equal(b.find((s) => s.id === "omar")?.balance, 10000);
+
+  // Edit morning session only: add omar as participant
+  const editedMorning = save(
+    {
+      ...readMorning,
+      memberIds: ["ali", "yasin", "omar"],
+    },
+    withBoth,
+  );
+  // Evening chai is unaffected
+  const eveningAfterMorningEdit = readMeal(editedMorning, date, "Chai", eveningCooking.id);
+  assert.deepEqual(eveningAfterMorningEdit.memberIds.sort(), ["ali", "omar"]);
+  assert.equal(eveningAfterMorningEdit.items[0].amount, 20000);
+
+  // Archive morning session: only morning records removed, evening stays
+  const archivedMorning = save(
+    {
+      ...readMeal(editedMorning, date, "Chai", morningCooking.id),
+      remove: true,
+    },
+    editedMorning,
+  );
+  const remainingCookings = archivedMorning.filter((r) => r.kind === "cooking" && r.meal === "Chai");
+  assert.equal(remainingCookings.length, 1);
+  assert.equal(remainingCookings[0].id, eveningCooking.id);
+
+  // Evening calculations still accurate:
+  // Ali (eater): +10000; Omar (eater): +10000; Yasin (buyer): -20000
+  const calcAfterArchive = calculate(archivedMorning);
+  assert.equal(calcAfterArchive.settlements.find((s) => s.id === "yasin")?.balance, -20000);
+  assert.equal(calcAfterArchive.settlements.find((s) => s.id === "omar")?.balance, 10000);
+  assert.equal(calcAfterArchive.settlements.find((s) => s.id === "ali")?.balance, 10000);
+
+  // Validation: zero participants rejected
+  assert.throws(() =>
+    save({ ...morningInput, memberIds: [] }, members),
+  );
+});

@@ -1,5 +1,7 @@
-export const meals = ["Breakfast", "Lunch", "Dinner"] as const;
+export const meals = ["Breakfast", "Lunch", "Dinner", "Chai"] as const;
 export type Meal = (typeof meals)[number];
+/** Meal types that are not unique per day - multiple sessions may be logged. */
+export const repeatingMeals: Meal[] = ["Chai"];
 export type Stay = { id: string; arrival: string; departure: string };
 export type Member = {
   id: string;
@@ -179,3 +181,4 @@ export const pkr = (paisa: number) =>
 export const rupees = (paisa: number) => paisa / 100;
 export const byKind = <K extends Kind>(records: Entity[], kind: K) =>
   records.filter((r): r is Extract<Entity, { kind: K }> => r.kind === kind);
+

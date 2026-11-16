@@ -44,6 +44,12 @@ const MEAL_DETAILS: Record<
     timeDesc: "Morning",
     orderRank: 1,
   },
+  Chai: {
+    label: "Chai",
+    badge: "Tea",
+    timeDesc: "Tea time",
+    orderRank: 0,
+  },
 };
 
 export function AttendanceBoard({

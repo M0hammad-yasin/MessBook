@@ -79,7 +79,7 @@ export function demoRecords(): Entity[] {
   });
   for (let d = 1; d <= day; d++) {
     const date = `${month}-${String(d).padStart(2, "0")}`;
-    meals.forEach((meal, mi) => {
+    (["Breakfast", "Lunch", "Dinner"] as const).forEach((meal, mi) => {
       if (d === day && mi === 2) return;
       names.forEach((_, i) => {
         if ((i + d + mi) % 7 !== 0)

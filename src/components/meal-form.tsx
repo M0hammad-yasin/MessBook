@@ -1,11 +1,12 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
-import { Plus, Trash2, Users, Loader2, Utensils } from "lucide-react";
+import { Plus, Trash2, Users, Loader2, Utensils, Coffee } from "lucide-react";
 import {
   byKind,
   meals,
   pkr,
+  repeatingMeals,
   today,
   type Entity,
   type Meal,
@@ -43,8 +44,13 @@ const newItem = (paidBy = "") => ({
   amount: "",
   paidBy,
 });
-function initial(records: Entity[], date: string, meal: Meal): Values {
-  const saved = readMeal(records, date, meal);
+function initial(
+  records: Entity[],
+  date: string,
+  meal: Meal,
+  slotId?: string,
+): Values {
+  const saved = readMeal(records, date, meal, slotId);
   const rate = (n?: number) => (n === undefined ? "" : String(n / 100));
   return {
     ...saved,
@@ -61,16 +67,25 @@ export function MealForm({
   records,
   date = today(),
   meal = "Breakfast",
+  /** For repeating meal types (Chai): identifies which existing session to edit.
+   *  Omit to create a brand-new session. */
+  slotId,
   onClose,
   onSave,
 }: {
   records: Entity[];
   date?: string;
   meal?: Meal;
+  slotId?: string;
   onClose: () => void;
   onSave: (meal: MealInput) => Promise<void>;
 }) {
-  const form = useForm<Values>({ defaultValues: initial(records, date, meal) });
+  const isChai = meal === "Chai";
+  const isRepeating = repeatingMeals.includes(meal);
+
+  const form = useForm<Values>({
+    defaultValues: initial(records, date, meal, slotId),
+  });
   const rows = useFieldArray({
     control: form.control,
     name: "items",
@@ -81,28 +96,41 @@ export function MealForm({
   const [saving, setSaving] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(false);
   const members = byKind(records, "member");
-  const saved = readMeal(records, v.date, v.meal);
+  const saved = readMeal(records, v.date, v.meal, v.slotId);
   const historic = saved.memberIds.filter(
     (id) => members.find((m) => m.id === id)?.status !== "Active",
   );
   const eligible = members.filter((m) => canJoinMeal(m, v.date));
   const fuel = byKind(records, "fuel");
   const oldLog = records.find(
-    (r) => r.kind === "cooking" && r.date === v.date && r.meal === v.meal,
+    (r) =>
+      r.kind === "cooking" &&
+      r.date === v.date &&
+      r.meal === v.meal &&
+      // For repeating meals, match by slotId (the cooking log's id).
+      (!isRepeating || r.id === v.slotId),
   );
   let rates = { oil: 0, gas: 0, chai: 0 };
   let rateError = "";
   const overrides: RateOverrides = {};
-  for (const r of resources) {
-    const raw = v[`${r}Rate`];
-    if (v[`${r}Id`] && raw !== undefined && raw.trim() !== "")
-      overrides[r] = Math.round(Number(raw) * 100);
+
+  // Chai sessions don't use fuel resources (oil / gas / chai purchase entries).
+  if (!isChai) {
+    for (const r of resources) {
+      const raw = v[`${r}Rate`];
+      if (v[`${r}Id`] && raw !== undefined && raw.trim() !== "")
+        overrides[r] = Math.round(Number(raw) * 100);
+    }
   }
+
   // How much of each purchase is still unallocated, ignoring this meal's saved charge.
   const charged = useMemo(() => calculate(records).fuelCharged, [records]);
   const averageFor = (id: string) => {
     const f = fuel.find((x) => x.id === id);
-    return f ? f[v.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"] : 0;
+    if (!f) return 0;
+    const mealKey = v.meal.toLowerCase() as "breakfast" | "lunch" | "dinner";
+    // Chai sessions have no per-meal rate on the fuel entry; fall back to 0.
+    return mealKey in f ? f[mealKey as "breakfast" | "lunch" | "dinner"] : 0;
   };
   const remainingFor = (id: string) => {
     const f = fuel.find((x) => x.id === id);
@@ -116,28 +144,32 @@ export function MealForm({
         : 0;
     return f.amount - ((charged[id] || 0) - own);
   };
-  try {
-    const log = prepareEntity(
-      {
-        id: oldLog?.id || "meal-preview",
-        kind: "cooking",
-        date: v.date,
-        meal: v.meal,
-        oilId: v.oilId,
-        gasId: v.gasId,
-        chaiId: v.chaiId,
-        oilRate: 0,
-        gasRate: 0,
-        chaiRate: 0,
-      },
-      records,
-      overrides,
-    );
-    if (log.kind === "cooking")
-      rates = { oil: log.oilRate, gas: log.gasRate, chai: log.chaiRate || 0 };
-  } catch (e) {
-    rateError = e instanceof Error ? e.message : "Check selected resources";
+
+  if (!isChai) {
+    try {
+      const log = prepareEntity(
+        {
+          id: oldLog?.id || "meal-preview",
+          kind: "cooking",
+          date: v.date,
+          meal: v.meal,
+          oilId: v.oilId,
+          gasId: v.gasId,
+          chaiId: v.chaiId,
+          oilRate: 0,
+          gasRate: 0,
+          chaiRate: 0,
+        },
+        records,
+        overrides,
+      );
+      if (log.kind === "cooking")
+        rates = { oil: log.oilRate, gas: log.gasRate, chai: log.chaiRate || 0 };
+    } catch (e) {
+      rateError = e instanceof Error ? e.message : "Check selected resources";
+    }
   }
+
   const foodTotal = v.items.reduce(
     (n, r) => n + Math.round((Number(r.amount) || 0) * 100),
     0,
@@ -146,11 +178,15 @@ export function MealForm({
   const buyers = members.filter(
     (m) => m.status === "Active" || v.items.some((r) => r.paidBy === m.id),
   );
+
   function selectSlot(nextDate: string, nextMeal: Meal) {
-    form.reset(initial(records, nextDate, nextMeal));
+    // When switching away from a repeating meal type, clear the slotId.
+    const nextSlotId = repeatingMeals.includes(nextMeal) ? v.slotId : undefined;
+    form.reset(initial(records, nextDate, nextMeal, nextSlotId));
     setError("");
     setRemoveConfirm(false);
   }
+
   async function submit(values: Values, remove = false) {
     setSaving(true);
     setError("");
@@ -159,9 +195,13 @@ export function MealForm({
         id && raw.trim() !== "" ? Math.round(Number(raw) * 100) : undefined;
       await onSave({
         ...values,
-        oilRate: manual(values.oilId, values.oilRate),
-        gasRate: manual(values.gasId, values.gasRate),
-        chaiRate: manual(values.chaiId, values.chaiRate),
+        // Chai sessions carry no fuel resource charges.
+        oilId: isChai ? "" : values.oilId,
+        gasId: isChai ? "" : values.gasId,
+        chaiId: isChai ? "" : values.chaiId,
+        oilRate: isChai ? undefined : manual(values.oilId, values.oilRate),
+        gasRate: isChai ? undefined : manual(values.gasId, values.gasRate),
+        chaiRate: isChai ? undefined : manual(values.chaiId, values.chaiRate),
         remove,
         items: remove
           ? []
@@ -172,11 +212,28 @@ export function MealForm({
       });
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to save meal");
+      setError(e instanceof Error ? e.message : "Unable to save");
     } finally {
       setSaving(false);
     }
   }
+
+  const participantLabel = isChai ? "Who had chai?" : "Who is eating?";
+  const saveLabel = v.original
+    ? isChai
+      ? "Save chai session"
+      : "Save changes"
+    : isChai
+      ? "Add chai session"
+      : "Save meal";
+  const titleLabel = v.original
+    ? isChai
+      ? "Edit chai session"
+      : "Edit meal"
+    : isChai
+      ? "Add chai session"
+      : "Add meal";
+
   return (
     <Dialog
       open
@@ -186,11 +243,13 @@ export function MealForm({
     >
       <DialogContent className="sm:max-w-3xl">
         <DialogTitle className="flex items-center gap-2 pr-8 text-xl font-semibold">
-          <Utensils size={21} />
-          {v.original ? "Edit meal" : "Add meal"}
+          {isChai ? <Coffee size={21} /> : <Utensils size={21} />}
+          {titleLabel}
         </DialogTitle>
         <DialogDescription className="mt-1 text-sm text-stone-500">
-          Items, who paid, and who ate — saved together.
+          {isChai
+            ? "Chai items, who paid, and who had chai — saved together. Multiple chai sessions can be added per day."
+            : "Items, who paid, and who ate — saved together."}
         </DialogDescription>
         <form
           className="mt-5 space-y-5"
@@ -209,7 +268,7 @@ export function MealForm({
                 />
               </label>
               <label className="field">
-                <span>Meal</span>
+                <span>Type</span>
                 <select
                   aria-label="Meal type"
                   className="control"
@@ -222,7 +281,27 @@ export function MealForm({
                 </select>
               </label>
             </div>
-            {v.original && (
+
+            {/* Chai badge: show how many chai sessions exist on this date */}
+            {isChai && (
+              <div
+                role="status"
+                className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
+              >
+                {v.original
+                  ? "Editing this chai session. Other sessions on the same day are unaffected."
+                  : (() => {
+                      const count = byKind(records, "cooking").filter(
+                        (c) => c.date === v.date && c.meal === "Chai",
+                      ).length;
+                      return count > 0
+                        ? `${count} chai session${count > 1 ? "s" : ""} already recorded on ${v.date}. This will add another.`
+                        : `No chai sessions recorded yet on ${v.date}.`;
+                    })()}
+              </div>
+            )}
+
+            {!isChai && v.original && (
               <div
                 role="status"
                 className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
@@ -231,10 +310,11 @@ export function MealForm({
                 eaters are loaded below. Saving updates this meal.
               </div>
             )}
+
             <section className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-sm">
-                  Items / ingredients / food
+                  {isChai ? "Chai items / costs" : "Items / ingredients / food"}
                 </h3>
                 <span className="text-sm text-stone-500">
                   {v.items.length} {v.items.length === 1 ? "item" : "items"}
@@ -248,7 +328,11 @@ export function MealForm({
                   <label className="field col-span-2 sm:col-span-1">
                     <span>Item {i + 1}</span>
                     <Input
-                      placeholder="e.g. Tomatoes, roti, eggs"
+                      placeholder={
+                        isChai
+                          ? "e.g. Doodh patti, biscuits"
+                          : "e.g. Tomatoes, roti, eggs"
+                      }
                       {...form.register(`items.${i}.description`)}
                       required
                       maxLength={300}
@@ -308,11 +392,12 @@ export function MealForm({
                 Add another item
               </Button>
             </section>
+
             <section className="rounded-xl border border-stone-200 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <Users size={17} />
-                  Who is eating?{" "}
+                  {participantLabel}{" "}
                   <span className="text-emerald-700">
                     {v.memberIds.length} selected
                   </span>
@@ -370,10 +455,10 @@ export function MealForm({
               {!!historic.length && (
                 <details className="mt-3 text-xs text-stone-500">
                   <summary>
-                    Historical inactive eaters ({historic.length})
+                    Historical inactive participants ({historic.length})
                   </summary>
                   <p className="my-2">
-                    Retained from this saved meal. Uncheck only to correct
+                    Retained from this saved record. Uncheck only to correct
                     historical attendance.
                   </p>
                   {historic.map((id) => (
@@ -399,118 +484,132 @@ export function MealForm({
                 </details>
               )}
             </section>
-            <details
-              className="rounded-xl border border-stone-200 p-4"
-              open={!!(v.oilId || v.gasId || v.chaiId)}
-            >
-              <summary className="cursor-pointer text-sm font-semibold">
-                Oil, gas & chai{" "}
-                <span className="font-normal text-stone-500">
-                  · {pkr(rates.oil + rates.gas + rates.chai)}
-                </span>
-              </summary>
-              <p className="mt-2 text-xs text-stone-500">
-                Choose the purchase each resource is taken from. The average
-                rate is suggested; type this meal&apos;s actual charge to
-                override it. The charge is deducted from the chosen purchase.
-              </p>
-              <div className="mt-3 grid gap-4 sm:grid-cols-3">
-                {resources.map((resource) => {
-                  const label = resource[0].toUpperCase() + resource.slice(1);
-                  const idKey = `${resource}Id` as const;
-                  const rateKey = `${resource}Rate` as const;
-                  const select = form.register(idKey);
-                  const picked = v[idKey];
-                  const effective = rates[resource];
-                  const remaining = picked ? remainingFor(picked) : 0;
-                  return (
-                    <div key={resource} className="space-y-2">
-                      <label className="field">
-                        <span>{label}</span>
-                        <select
-                          aria-label={`${label} entry`}
-                          className="control"
-                          {...select}
-                          onChange={(e) => {
-                            select.onChange(e);
-                            // A different purchase starts again from its own average.
-                            form.setValue(rateKey, "");
-                          }}
-                        >
-                          <option value="">Not used</option>
-                          {fuel
-                            .filter(
-                              (f) =>
-                                f.resource.toLowerCase() === resource &&
-                                f.tier === "average" &&
-                                ((!f.end && f.effective <= v.date) ||
-                                  f.id === saved[idKey]),
-                            )
-                            .map((f) => (
-                              <option key={f.id} value={f.id}>
-                                {f.date} · {pkr(f.amount)} · left{" "}
-                                {pkr(remainingFor(f.id))}
-                                {f.notes ? ` · ${f.notes}` : ""}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      {picked && (
-                        <label className="field">
-                          <span>{label} charge for this meal (PKR)</span>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            aria-label={`${label} charge`}
-                            placeholder={String(averageFor(picked) / 100)}
-                            {...form.register(rateKey)}
-                          />
-                          <small>
-                            Average {pkr(averageFor(picked))}. Leave blank to
-                            use it.
-                          </small>
-                          {effective > remaining && (
-                            <small className="text-amber-700">
-                              Exceeds the {pkr(Math.max(remaining, 0))} left on
-                              this purchase; it will show as overcharged.
-                            </small>
-                          )}
-                        </label>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {rateError && (
-                <p role="alert" className="mt-2 text-sm text-red-700">
-                  {rateError}
+
+            {/* Oil / gas / chai resource section — hidden for Chai sessions */}
+            {!isChai && (
+              <details
+                className="rounded-xl border border-stone-200 p-4"
+                open={!!(v.oilId || v.gasId || v.chaiId)}
+              >
+                <summary className="cursor-pointer text-sm font-semibold">
+                  Oil, gas &amp; chai{" "}
+                  <span className="font-normal text-stone-500">
+                    · {pkr(rates.oil + rates.gas + rates.chai)}
+                  </span>
+                </summary>
+                <p className="mt-2 text-xs text-stone-500">
+                  Choose the purchase each resource is taken from. The average
+                  rate is suggested; type this meal&apos;s actual charge to
+                  override it. The charge is deducted from the chosen purchase.
                 </p>
-              )}
-            </details>
+                <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                  {resources.map((resource) => {
+                    const label = resource[0].toUpperCase() + resource.slice(1);
+                    const idKey = `${resource}Id` as const;
+                    const rateKey = `${resource}Rate` as const;
+                    const select = form.register(idKey);
+                    const picked = v[idKey];
+                    const effective = rates[resource];
+                    const remaining = picked ? remainingFor(picked) : 0;
+                    return (
+                      <div key={resource} className="space-y-2">
+                        <label className="field">
+                          <span>{label}</span>
+                          <select
+                            aria-label={`${label} entry`}
+                            className="control"
+                            {...select}
+                            onChange={(e) => {
+                              select.onChange(e);
+                              // A different purchase starts again from its own average.
+                              form.setValue(rateKey, "");
+                            }}
+                          >
+                            <option value="">Not used</option>
+                            {fuel
+                              .filter(
+                                (f) =>
+                                  f.resource.toLowerCase() === resource &&
+                                  f.tier === "average" &&
+                                  ((!f.end && f.effective <= v.date) ||
+                                    f.id === saved[idKey]),
+                              )
+                              .map((f) => (
+                                <option key={f.id} value={f.id}>
+                                  {f.date} · {pkr(f.amount)} · left{" "}
+                                  {pkr(remainingFor(f.id))}
+                                  {f.notes ? ` · ${f.notes}` : ""}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        {picked && (
+                          <label className="field">
+                            <span>{label} charge for this meal (PKR)</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              aria-label={`${label} charge`}
+                              placeholder={String(averageFor(picked) / 100)}
+                              {...form.register(rateKey)}
+                            />
+                            <small>
+                              Average {pkr(averageFor(picked))}. Leave blank to
+                              use it.
+                            </small>
+                            {effective > remaining && (
+                              <small className="text-amber-700">
+                                Exceeds the {pkr(Math.max(remaining, 0))} left on
+                                this purchase; it will show as overcharged.
+                              </small>
+                            )}
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {rateError && (
+                  <p role="alert" className="mt-2 text-sm text-red-700">
+                    {rateError}
+                  </p>
+                )}
+              </details>
+            )}
+
             <div
               className="rounded-xl bg-emerald-950 p-4 text-white"
               aria-live="polite"
             >
               <div className="flex justify-between text-xs text-emerald-200">
-                <span>Ingredients {pkr(foodTotal)}</span>
                 <span>
-                  Oil / gas / chai {pkr(rates.oil + rates.gas + rates.chai)}
+                  {isChai ? "Chai costs" : "Ingredients"} {pkr(foodTotal)}
                 </span>
+                {!isChai && (
+                  <span>
+                    Oil / gas / chai {pkr(rates.oil + rates.gas + rates.chai)}
+                  </span>
+                )}
               </div>
               <div className="mt-3 flex items-end justify-between gap-2">
                 <div>
-                  <p className="text-xs text-emerald-200">Meal total</p>
+                  <p className="text-xs text-emerald-200">
+                    {isChai ? "Session total" : "Meal total"}
+                  </p>
                   <strong className="text-2xl">{pkr(total)}</strong>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-emerald-200">
-                    {v.memberIds.length} eaters · average each
+                    {v.memberIds.length}{" "}
+                    {isChai ? "participants" : "eaters"} · average each
                   </p>
                   <strong className="text-lg">
                     {v.memberIds.length
                       ? pkr(total / v.memberIds.length)
-                      : "Select eaters"}
+                      : isChai
+                        ? "Select participants"
+                        : "Select eaters"}
                   </strong>
                 </div>
               </div>
@@ -555,18 +654,18 @@ export function MealForm({
               type="submit"
               size="sm"
               className="min-h-11"
-              disabled={saving || !!rateError}
+              disabled={saving || (!isChai && !!rateError)}
             >
               {saving && <Loader2 size={16} className="animate-spin" />}
-              {v.original ? "Save changes" : "Save meal"}
+              {saveLabel}
             </Button>
           </div>
           {removeConfirm && (
             <div className="rounded-xl bg-red-50 p-3 text-sm text-red-800">
               <p>
-                Archive this meal, its attendance, and its buyer credits? This
-                removes its charges from member balances and retains the audit
-                history.
+                {isChai
+                  ? "Archive this chai session, its attendance, and its buyer credits? This removes its charges from member balances and retains the audit history."
+                  : "Archive this meal, its attendance, and its buyer credits? This removes its charges from member balances and retains the audit history."}
               </p>
               <Button
                 type="button"

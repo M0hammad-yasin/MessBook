@@ -54,6 +54,7 @@ import {
   today,
   type Entity,
   type Kind,
+  type Meal,
   type Member,
   type State,
 } from "@/lib/domain";
@@ -218,7 +219,7 @@ export default function MessApp() {
   const [filter, setFilter] = useState("All");
   const [memberFilter, setMemberFilter] = useState("All");
   const [secondary, setSecondary] = useState("All");
-  const [form, setForm] = useState<{ kind: Kind; entity?: Entity } | null>(
+  const [form, setForm] = useState<{ kind: Kind; entity?: Entity; slotId?: string } | null>(
     null,
   );
   const [quick, setQuick] = useState(false);
@@ -1292,12 +1293,26 @@ export default function MessApp() {
                         <ArrowUpRight className="inline" size={13} />
                       </button>
                     </div>
-                    <div className="mt-5 grid grid-cols-3 gap-3">
-                      {meals.map((meal, i) => {
-                        const summary = result.mealSummaries.find(
+                    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {meals.map((meal) => {
+                        const summaries = result.mealSummaries.filter(
                           (m) => m.date === today() && m.meal === meal,
                         );
-                        const Icon = [Coffee, Sun, Moon][i];
+                        const eatersCount = summaries.reduce(
+                          (n, m) => n + m.eaters,
+                          0,
+                        );
+                        const totalCost = summaries.reduce(
+                          (n, m) => n + m.total,
+                          0,
+                        );
+                        const iconMap: Record<Meal, React.ComponentType<{ size?: number; className?: string }>> = {
+                          Breakfast: Coffee,
+                          Lunch: Sun,
+                          Dinner: Moon,
+                          Chai: Flame,
+                        };
+                        const Icon = iconMap[meal] || Utensils;
                         return (
                           <div
                             key={meal}
@@ -1308,15 +1323,15 @@ export default function MessApp() {
                               {meal}
                             </div>
                             <p className="mt-4 text-2xl font-semibold">
-                              {summary?.eaters || 0}
+                              {eatersCount}
                               <span className="ml-1 text-[10px] font-normal text-stone-400">
-                                eaters
+                                {meal === "Chai" && summaries.length > 1
+                                  ? `eaters (${summaries.length} sessions)`
+                                  : "eaters"}
                               </span>
                             </p>
                             <p className="mt-2 text-[11px] text-stone-500">
-                              {summary?.total
-                                ? pkr(summary.total)
-                                : "No expenses yet"}
+                              {totalCost ? pkr(totalCost) : "No expenses yet"}
                             </p>
                           </div>
                         );
@@ -1512,14 +1527,18 @@ export default function MessApp() {
                 query={query}
                 filter={filter}
                 memberFilter={memberFilter}
-                onEdit={(date, meal) =>
-                  openEntity({
-                    id: "meal-editor",
+                onEdit={(date, meal, slotId) =>
+                  setForm({
                     kind: "food",
-                    date,
-                    meal,
-                    description: "",
-                    amount: 0,
+                    entity: {
+                      id: slotId ?? "meal-editor",
+                      kind: "food",
+                      date,
+                      meal,
+                      description: "",
+                      amount: 0,
+                    },
+                    slotId,
                   })
                 }
               />
@@ -1890,6 +1909,7 @@ export default function MessApp() {
                   ? form.entity.meal
                   : undefined
               }
+              slotId={form.slotId}
               onClose={() => setForm(null)}
               onSave={(meal) => save([], [], meal)}
             />
@@ -2195,7 +2215,7 @@ function Reports({
           .reduce((n, m) => n + m.food, 0),
         oil: mealsForPeriod.reduce((n, m) => n + m.oil, 0),
         gas: mealsForPeriod.reduce((n, m) => n + m.gas, 0),
-        chai: mealsForPeriod.reduce((n, m) => n + m.chai, 0),
+        chai: mealsForPeriod.reduce((n, m) => n + m.chai + (m.meal === "Chai" ? m.food : 0), 0),
         directChai: byKind(records, "fuel")
           .filter(
             (f) =>

@@ -14,7 +14,7 @@ export const date = z
   );
 const emptyDate = z.union([date, z.literal("")]);
 const money = z.number().int().min(0).max(1_000_000_000);
-const meal = z.enum(["Breakfast", "Lunch", "Dinner"]);
+const meal = z.enum(["Breakfast", "Lunch", "Dinner", "Chai"]);
 const members = z
   .array(id)
   .max(1000)
@@ -231,7 +231,7 @@ export function prepareEntity(
           ? old[rate] || 0
           : entry[
               entity.meal.toLowerCase() as "breakfast" | "lunch" | "dinner"
-            ]);
+            ] ?? 0);
     }
   }
   return entity;
@@ -275,7 +275,13 @@ export function validateState(records: Entity[]) {
     }
     if (e.kind === "member") validateStays(e);
     if (e.kind === "attendance" || e.kind === "cooking") {
-      const key = `${e.kind}|${e.date}|${e.meal}|${e.kind === "attendance" ? e.memberId : ""}`;
+      // Repeating meals (Chai) can be recorded multiple times per day.
+      // Scope attendance and cooking uniqueness per session (slot).
+      const isRepeating = e.meal === "Chai";
+      const slot = isRepeating && e.id.includes(":") ? e.id.split(":")[0] : e.id;
+      const key = isRepeating
+        ? `${e.kind}|${e.date}|${e.meal}|${slot}|${e.kind === "attendance" ? e.memberId : ""}`
+        : `${e.kind}|${e.date}|${e.meal}|${e.kind === "attendance" ? e.memberId : ""}`;
       if (unique.has(key))
         throw new Error("Duplicate attendance or cooking log");
       unique.add(key);

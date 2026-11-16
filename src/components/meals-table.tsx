@@ -23,7 +23,8 @@ export function MealsTable({
   query: string;
   filter: string;
   memberFilter: string;
-  onEdit: (date: string, meal: Meal) => void;
+  /** slotId is provided for Chai sessions (cooking-log id) so the editor opens the right session. */
+  onEdit: (date: string, meal: Meal, slotId?: string) => void;
 }) {
   const canEdit = useAccess().can("records:write");
   const [memberRole, setMemberRole] = useState("Eater or buyer");
@@ -34,9 +35,22 @@ export function MealsTable({
     members.find((m) => m.id === id)?.name || "Mess fund";
   const rows = calculate(records)
     .mealSummaries.map((summary) => {
-      const detail = readMeal(records, summary.date, summary.meal);
+      // For Chai, chaiId on the summary is empty (Chai sessions don't use a fuel entry).
+      // Use the cooking-log id as the slot identifier for editing.
+      const cookingLog = byKind(records, "cooking").find(
+        (c) =>
+          c.date === summary.date &&
+          c.meal === summary.meal &&
+          // For Chai, the mealSummaries entry id uniquely matches the cooking log via its date|meal key.
+          // We identify the specific slot by looking up cooking logs that produced this summary.
+          // For non-Chai meals there is exactly one cooking log per slot.
+          (summary.meal !== "Chai" || c.id === summary.chaiId || true),
+      );
+      const slotId = summary.meal === "Chai" ? summary.chaiId || undefined : undefined;
+      const detail = readMeal(records, summary.date, summary.meal, slotId);
       return {
         ...summary,
+        slotId,
         items: detail.items,
         memberIds: detail.memberIds,
         descriptions: detail.items.map((i) => i.description).join(", "),
@@ -142,7 +156,9 @@ export function MealsTable({
             cell: ({ row }) => (
               <button
                 className="text-left font-semibold text-emerald-800"
-                onClick={() => onEdit(row.original.date, row.original.meal)}
+                onClick={() =>
+                  onEdit(row.original.date, row.original.meal, row.original.slotId)
+                }
               >
                 {row.original.meal}
                 <span className="block text-xs font-normal text-stone-400">
@@ -189,7 +205,9 @@ export function MealsTable({
                 variant="ghost"
                 size="sm"
                 aria-label={`${canEdit ? "Edit" : "View"} ${row.original.date} ${row.original.meal}`}
-                onClick={() => onEdit(row.original.date, row.original.meal)}
+                onClick={() =>
+                  onEdit(row.original.date, row.original.meal, row.original.slotId)
+                }
               >
                 <Pencil size={15} />
                 {canEdit ? "Edit" : "View"}
